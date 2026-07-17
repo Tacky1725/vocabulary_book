@@ -27,7 +27,7 @@ export default function LoginScreen() {
   return (
     <Card sx={{ maxWidth: 480, mx: 'auto', mt: 6 }}>
       <CardContent>
-        <Stack spacing={2} alignItems="center" sx={{ py: 2 }}>
+        <Stack spacing={2} sx={{ alignItems: 'center', py: 2 }}>
           <Typography variant="h6" component="h2">
             ログイン
           </Typography>

@@ -20,4 +20,20 @@ export const theme = createTheme({
       'sans-serif',
     ].join(','),
   },
+  components: {
+    // タッチ操作向けに主要な操作要素の最小タップ領域を約44pxへ引き上げる。
+    // size="small" の要素（一覧の絞り込み等、密度を優先したい箇所）は個別指定を尊重するため対象外にする。
+    MuiButton: {
+      styleOverrides: {
+        root: { minHeight: 44 },
+        sizeSmall: { minHeight: 'auto' },
+      },
+    },
+    MuiIconButton: {
+      styleOverrides: {
+        root: { minWidth: 44, minHeight: 44 },
+        sizeSmall: { minWidth: 'auto', minHeight: 'auto' },
+      },
+    },
+  },
 })

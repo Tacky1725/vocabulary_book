@@ -15,7 +15,16 @@ import Divider from '@mui/material/Divider'
 import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
+import Paper from '@mui/material/Paper'
+import BottomNavigation from '@mui/material/BottomNavigation'
+import BottomNavigationAction from '@mui/material/BottomNavigationAction'
+import useMediaQuery from '@mui/material/useMediaQuery'
+import { useTheme } from '@mui/material/styles'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
+import HomeIcon from '@mui/icons-material/Home'
+import AddCircleIcon from '@mui/icons-material/AddCircle'
+import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
+import QuizIcon from '@mui/icons-material/Quiz'
 import Dashboard from './pages/Dashboard.jsx'
 import AddWord from './pages/AddWord.jsx'
 import WordList from './pages/WordList.jsx'
@@ -25,17 +34,23 @@ import { useAuth } from './hooks/useAuth.jsx'
 import { logout } from './lib/firebase.js'
 
 const NAV_ITEMS = [
-  { to: '/', label: 'ダッシュボード', end: true },
-  { to: '/add', label: '単語追加' },
-  { to: '/words', label: '単語一覧' },
-  { to: '/test', label: 'テスト' },
+  { to: '/', label: 'ダッシュボード', shortLabel: 'ホーム', icon: <HomeIcon />, end: true },
+  { to: '/add', label: '単語追加', shortLabel: '追加', icon: <AddCircleIcon /> },
+  { to: '/words', label: '単語一覧', shortLabel: '一覧', icon: <FormatListBulletedIcon /> },
+  { to: '/test', label: 'テスト', shortLabel: 'テスト', icon: <QuizIcon /> },
 ]
 
-function AppNav() {
+// 現在のパスに対応する NAV_ITEMS の to を返す（末尾は前方一致でネストにも耐える）
+function useCurrentNavValue() {
   const { pathname } = useLocation()
-  const currentTab =
+  return (
     NAV_ITEMS.find((item) => (item.end ? pathname === item.to : pathname.startsWith(item.to)))
       ?.to ?? false
+  )
+}
+
+function AppNav() {
+  const currentTab = useCurrentNavValue()
 
   return (
     <Tabs
@@ -50,6 +65,38 @@ function AppNav() {
         <Tab key={item.to} label={item.label} value={item.to} component={RouterLink} to={item.to} />
       ))}
     </Tabs>
+  )
+}
+
+// スマホ用の画面下部固定ナビ。iOS のホームバー等を避けるため safe-area 分の余白を確保する。
+function MobileNav() {
+  const currentTab = useCurrentNavValue()
+
+  return (
+    <Paper
+      elevation={3}
+      sx={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        zIndex: (theme) => theme.zIndex.appBar,
+        pb: 'env(safe-area-inset-bottom)',
+      }}
+    >
+      <BottomNavigation value={currentTab} showLabels>
+        {NAV_ITEMS.map((item) => (
+          <BottomNavigationAction
+            key={item.to}
+            label={item.shortLabel}
+            value={item.to}
+            icon={item.icon}
+            component={RouterLink}
+            to={item.to}
+          />
+        ))}
+      </BottomNavigation>
+    </Paper>
   )
 }
 
@@ -124,16 +171,22 @@ function AppContent() {
 
 export default function App() {
   const { user, status } = useAuth()
+  const theme = useTheme()
+  // 600px 未満をスマホ扱い。上部タブを畳んで下部ナビへ切り替える。
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const showMobileNav = isMobile && status === 'ready'
 
   return (
-    <HashRouter>
+    // future フラグは v7 の挙動を先取りするオプトイン（開発コンソールの Future Flag 警告も消える）。
+    // react-router は Node 18 制約で v6 に固定しているため、移行を滑らかにする目的で有効化しておく。
+    <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AppBar position="static">
         <Toolbar sx={{ flexWrap: 'wrap', rowGap: 1, py: 1 }}>
           <MenuBookIcon sx={{ mr: 1 }} />
-          <Typography variant="h6" component="h1" sx={{ mr: 3 }}>
+          <Typography variant="h6" component="h1" sx={{ mr: { xs: 1, sm: 3 } }}>
             英単語帳
           </Typography>
-          {status === 'ready' && <AppNav />}
+          {!isMobile && status === 'ready' && <AppNav />}
           {user && (
             <Box sx={{ ml: 'auto' }}>
               <AccountMenu user={user} />
@@ -141,9 +194,20 @@ export default function App() {
           )}
         </Toolbar>
       </AppBar>
-      <Box component="main" sx={{ maxWidth: 960, mx: 'auto', px: 2, py: 3 }}>
+      <Box
+        component="main"
+        sx={{
+          maxWidth: 960,
+          mx: 'auto',
+          px: { xs: 1.5, sm: 3 },
+          py: { xs: 2, sm: 3 },
+          // 下部固定ナビと本文が重ならないよう余白を確保（safe-area 込み）
+          pb: showMobileNav ? 'calc(72px + env(safe-area-inset-bottom))' : { xs: 2, sm: 3 },
+        }}
+      >
         <AppContent />
       </Box>
+      {showMobileNav && <MobileNav />}
     </HashRouter>
   )
 }
