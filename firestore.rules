@@ -1,0 +1,31 @@
+rules_version = '2';
+
+// Firestore セキュリティルール（Firebase コンソール → Firestore Database → ルール に貼り付けて公開する）。
+// このファイルは原本。編集しただけでは反映されず、コンソールへの貼り付け＋「公開」が必要。
+//
+// 方針: メールアドレス許可制の複数人利用。
+//   - allowedEmails に列挙した Google アカウントだけが利用できる
+//   - 各利用者は自分の users/{uid} 配下だけを読み書きできる（他人のデータは読めない・書けない）
+//   - 列挙されていないアカウントはログインしても一切読み書きできず、無料枠の消費（乱用）も不可能
+//
+// 利用者を追加するとき: allowedEmails に1行追加して「公開」を押すだけ。
+// メールアドレスは、本人がアプリにログインした際に右上アカウントメニューに表示されるものと
+// 完全一致させること（大文字小文字も区別される）。
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAllowedUser() {
+      let allowedEmails = [
+        'admin@example.com',
+        'user@example.com'
+        // 利用者を増やす場合はここに追加する（例: 'user2@example.com',）
+      ];
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in allowedEmails;
+    }
+    match /users/{uid}/{document=**} {
+      allow read, write: if isAllowedUser() && request.auth.uid == uid;
+    }
+  }
+}

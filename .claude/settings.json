@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(apt-cache search *)",
+      "Bash(apt-cache policy *)",
+      "Bash(dpkg -L libnss3)",
+      "Bash(apt-file search *)",
+      "Bash(dpkg-deb -c libnss3*.deb)",
+      "Bash(LD_LIBRARY_PATH=/tmp/claude-1000/chromedeps/extracted/usr/lib/x86_64-linux-gnu node verify_addword.mjs)"
+    ]
+  }
+}
