@@ -2,3 +2,6 @@ node_modules
 dist
 *.local
 .DS_Store
+
+# Claude Code 用のローカル開発メモ（公開リポジトリには載せない）
+CLAUDE.md
