@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { alpha } from '@mui/material/styles'
 import Box from '@mui/material/Box'
@@ -8,21 +8,36 @@ import Stack from '@mui/material/Stack'
 import Divider from '@mui/material/Divider'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
+import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import LinearProgress from '@mui/material/LinearProgress'
+import Alert from '@mui/material/Alert'
+import Dialog from '@mui/material/Dialog'
+import DialogTitle from '@mui/material/DialogTitle'
+import DialogContent from '@mui/material/DialogContent'
+import DialogActions from '@mui/material/DialogActions'
+import FormControl from '@mui/material/FormControl'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import InputLabel from '@mui/material/InputLabel'
+import Select from '@mui/material/Select'
+import MenuItem from '@mui/material/MenuItem'
+import Switch from '@mui/material/Switch'
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
 import QuizIcon from '@mui/icons-material/Quiz'
 import TrackChangesIcon from '@mui/icons-material/TrackChanges'
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
+import SettingsIcon from '@mui/icons-material/Settings'
 import AddIcon from '@mui/icons-material/Add'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import { useWords } from '../hooks/useWords.js'
 import { useTestSessions } from '../hooks/useTestSessions.js'
+import { useSettings } from '../hooks/useSettings.js'
 import {
   calcStreak,
   calcMasteryDistribution,
   calcSummary,
+  calcTodayProgress,
   buildActivityCalendar,
   toLocalDateKey,
 } from '../lib/stats.js'
@@ -37,6 +52,16 @@ const LEVEL_OPACITY = [0, 0.25, 0.5, 0.75, 1]
 // 曜日ラベル（0=日〜6=土）。全行に3文字略記で表示する。
 const WEEKDAY_LABELS = ['Sun.', 'Mon.', 'Tue.', 'Wed.', 'Thu.', 'Fri.', 'Sat.']
 
+// デイリーゴール。オフ始まり（enabled:false）。target はプリセットから選ぶ。
+const DEFAULT_DAILY_GOAL = { metric: 'questions', target: 20, enabled: false }
+const GOAL_TARGET_OPTIONS = [10, 20, 30, 50]
+const GOAL_METRICS = [
+  { id: 'questions', label: '出題数' },
+  { id: 'newWords', label: '新規追加した語数' },
+]
+const goalMetricLabel = (metric) =>
+  GOAL_METRICS.find((m) => m.id === metric)?.label ?? GOAL_METRICS[0].label
+
 const MASTERY_BAR_COLOR = {
   unlearned: 'action.disabled',
   learning: 'primary.main',
@@ -46,11 +71,16 @@ const MASTERY_BAR_COLOR = {
 export default function Dashboard() {
   const { words } = useWords()
   const { sessions } = useTestSessions()
+  const { settings, updateSettings } = useSettings()
 
   const summary = useMemo(() => calcSummary(words, sessions), [words, sessions])
   const streak = useMemo(() => calcStreak(sessions), [sessions])
   const distribution = useMemo(() => calcMasteryDistribution(words), [words])
   const calendar = useMemo(() => buildActivityCalendar(sessions), [sessions])
+  const todayProgress = useMemo(() => calcTodayProgress(words, sessions), [words, sessions])
+
+  const dailyGoal = settings.dailyGoal ?? DEFAULT_DAILY_GOAL
+  const [goalDialogOpen, setGoalDialogOpen] = useState(false)
 
   // 直近のセッションを新しい順に数件
   const recentSessions = useMemo(
@@ -104,6 +134,13 @@ export default function Dashboard() {
           value={summary.accuracy !== null ? `${summary.accuracy}%` : '--'}
         />
       </Box>
+
+      {/* 今日の目標（デイリーゴール） */}
+      <DailyGoalCard
+        goal={dailyGoal}
+        progress={todayProgress}
+        onEdit={() => setGoalDialogOpen(true)}
+      />
 
       {/* 習熟度の分布 */}
       <Card>
@@ -206,6 +243,17 @@ export default function Dashboard() {
           )}
         </CardContent>
       </Card>
+
+      <GoalSettingsDialog
+        open={goalDialogOpen}
+        initial={dailyGoal}
+        onClose={() => setGoalDialogOpen(false)}
+        onSave={(next) => {
+          // dailyGoal だけを patch（他機能が同じ settings ドキュメントを共有するため丸ごと上書きしない）
+          updateSettings({ dailyGoal: next })
+          setGoalDialogOpen(false)
+        }}
+      />
     </Stack>
   )
 }
@@ -299,6 +347,149 @@ function SummaryNum({ children }) {
     <Box component="span" sx={{ fontSize: '1.25em', fontWeight: 700, color: 'text.primary' }}>
       {children}
     </Box>
+  )
+}
+
+// 今日の目標カード。進捗は算出値（Firestore に実績は書かない）。オフ時は設定導線を出す。
+function DailyGoalCard({ goal, progress, onEdit }) {
+  const current = goal.metric === 'newWords' ? progress.newWordsToday : progress.answeredToday
+  const percent = goal.target > 0 ? Math.min(100, Math.round((current / goal.target) * 100)) : 0
+  const achieved = current >= goal.target
+  const unit = goal.metric === 'newWords' ? '語' : '問'
+
+  return (
+    <Card>
+      <CardContent>
+        <Stack
+          direction="row"
+          sx={{ justifyContent: 'space-between', alignItems: 'center', mb: goal.enabled ? 1.5 : 0 }}
+        >
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            <TrackChangesIcon color="primary" fontSize="small" />
+            <Typography variant="h6" component="h3">
+              今日の目標
+            </Typography>
+          </Stack>
+          <IconButton aria-label="目標を設定" size="small" onClick={onEdit}>
+            <SettingsIcon fontSize="small" />
+          </IconButton>
+        </Stack>
+
+        {goal.enabled ? (
+          <Box>
+            <Stack
+              direction="row"
+              sx={{ justifyContent: 'space-between', alignItems: 'baseline', mb: 0.5 }}
+            >
+              <Typography variant="body2">{goalMetricLabel(goal.metric)}</Typography>
+              <Typography variant="body2" color="text.secondary">
+                {current} / {goal.target} {unit}
+              </Typography>
+            </Stack>
+            <LinearProgress
+              variant="determinate"
+              value={percent}
+              sx={{
+                height: 10,
+                borderRadius: 999,
+                bgcolor: 'action.hover',
+                '& .MuiLinearProgress-bar': {
+                  bgcolor: achieved ? 'success.main' : 'primary.main',
+                  borderRadius: 999,
+                },
+              }}
+            />
+            {achieved && (
+              <Alert severity="success" sx={{ mt: 1.5 }}>
+                今日の目標を達成しました！🎉
+              </Alert>
+            )}
+          </Box>
+        ) : (
+          <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
+            <Typography color="text.secondary">
+              1日の学習目標を設定すると、今日の進捗が表示されます。
+            </Typography>
+            <Button variant="outlined" startIcon={<SettingsIcon />} onClick={onEdit}>
+              目標を設定する
+            </Button>
+          </Stack>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// 目標設定ダイアログ。開くたびに現在値で初期化し、保存時に dailyGoal をまとめて patch する。
+function GoalSettingsDialog({ open, initial, onClose, onSave }) {
+  const [metric, setMetric] = useState(initial.metric)
+  const [target, setTarget] = useState(initial.target)
+  const [enabled, setEnabled] = useState(initial.enabled)
+
+  useEffect(() => {
+    if (open) {
+      setMetric(initial.metric)
+      setTarget(initial.target)
+      setEnabled(initial.enabled)
+    }
+  }, [open, initial.metric, initial.target, initial.enabled])
+
+  // 別端末などでプリセット外の値が入っていても選べるように、現在値を選択肢に含める
+  const targetOptions = GOAL_TARGET_OPTIONS.includes(target)
+    ? GOAL_TARGET_OPTIONS
+    : [...GOAL_TARGET_OPTIONS, target].sort((a, b) => a - b)
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+      <DialogTitle>今日の目標を設定</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2.5} sx={{ mt: 1 }}>
+          <FormControlLabel
+            control={<Switch checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />}
+            label="デイリーゴールを有効にする"
+          />
+          <FormControl fullWidth disabled={!enabled}>
+            <InputLabel id="goal-metric-label">指標</InputLabel>
+            <Select
+              labelId="goal-metric-label"
+              label="指標"
+              value={metric}
+              onChange={(e) => setMetric(e.target.value)}
+            >
+              {GOAL_METRICS.map((m) => (
+                <MenuItem key={m.id} value={m.id}>
+                  {m.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth disabled={!enabled}>
+            <InputLabel id="goal-target-label">1日の目標</InputLabel>
+            <Select
+              labelId="goal-target-label"
+              label="1日の目標"
+              value={target}
+              onChange={(e) => setTarget(Number(e.target.value))}
+            >
+              {targetOptions.map((t) => (
+                <MenuItem key={t} value={t}>
+                  {t} {metric === 'newWords' ? '語' : '問'}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>キャンセル</Button>
+        <Button
+          variant="contained"
+          onClick={() => onSave({ metric, target: Number(target), enabled })}
+        >
+          保存
+        </Button>
+      </DialogActions>
+    </Dialog>
   )
 }
 
