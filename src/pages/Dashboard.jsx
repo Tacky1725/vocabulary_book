@@ -53,8 +53,9 @@ export default function Dashboard() {
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-          gap: 2,
+          // スマホは常に2列（縦に長くなりすぎるのを防ぐ）、sm以上は幅に応じて自動
+          gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(auto-fit, minmax(160px, 1fr))' },
+          gap: { xs: 1.5, sm: 2 },
         }}
       >
         <StatTile
@@ -93,9 +94,7 @@ export default function Dashboard() {
                   <Box key={bucket.id}>
                     <Stack
                       direction="row"
-                      justifyContent="space-between"
-                      alignItems="baseline"
-                      sx={{ mb: 0.5 }}
+                      sx={{ justifyContent: 'space-between', alignItems: 'baseline', mb: 0.5 }}
                     >
                       <Typography variant="body2">{bucket.label}</Typography>
                       <Typography variant="body2" color="text.secondary">
@@ -120,7 +119,7 @@ export default function Dashboard() {
               })}
             </Stack>
           ) : (
-            <Stack spacing={1} alignItems="flex-start">
+            <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
               <Typography color="text.secondary">
                 まだ単語が登録されていません。まずは単語を追加しましょう。
               </Typography>
@@ -145,8 +144,7 @@ export default function Dashboard() {
                   key={`${session.date}-${index}`}
                   direction="row"
                   spacing={2}
-                  alignItems="baseline"
-                  sx={{ py: 1 }}
+                  sx={{ alignItems: 'baseline', py: 1 }}
                 >
                   <Typography fontWeight={600}>{toLocalDateKey(session.date)}</Typography>
                   <Typography color="text.secondary">出題 {session.total}問</Typography>
@@ -155,7 +153,7 @@ export default function Dashboard() {
               ))}
             </Stack>
           ) : (
-            <Stack spacing={1} alignItems="flex-start">
+            <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
               <Typography color="text.secondary">まだテストを実施していません。</Typography>
               {hasWords && (
                 <Button component={Link} to="/test" variant="contained" startIcon={<PlayArrowIcon />}>
@@ -177,16 +175,14 @@ function StatTile({ icon, label, value }) {
         <Stack
           direction="row"
           spacing={0.5}
-          justifyContent="center"
-          alignItems="center"
-          sx={{ mb: 0.5 }}
+          sx={{ justifyContent: 'center', alignItems: 'center', mb: 0.5 }}
         >
           {icon}
           <Typography variant="body2" color="text.secondary">
             {label}
           </Typography>
         </Stack>
-        <Typography variant="h4" fontWeight={700} lineHeight={1.3}>
+        <Typography variant="h4" fontWeight={700} sx={{ lineHeight: 1.3 }}>
           {value}
         </Typography>
       </CardContent>

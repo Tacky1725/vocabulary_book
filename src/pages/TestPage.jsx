@@ -147,7 +147,7 @@ export default function TestPage() {
   return (
     <Card>
       <CardContent>
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
           <QuizIcon color="primary" />
           <Typography variant="h5" component="h2">
             単語テスト
@@ -280,7 +280,7 @@ function QuizScreen({
   return (
     <Card>
       <CardContent>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
           <Chip label={`${currentIndex + 1} / ${total}`} size="small" />
           <Typography color="text.secondary">スコア: {score}</Typography>
         </Stack>
@@ -299,7 +299,8 @@ function QuizScreen({
         <Box
           sx={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            // スマホは1列固定でタップしやすく、PC以上は2列に折り返す
+            gridTemplateColumns: { xs: '1fr', sm: 'repeat(auto-fit, minmax(220px, 1fr))' },
             gap: 1.25,
             mb: 2,
           }}
@@ -367,7 +368,7 @@ function QuizScreen({
 
         {answered && (
           <Box sx={{ borderTop: 1, borderColor: 'divider', pt: 1.5 }}>
-            <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: 1 }}>
+            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', mb: 1 }}>
               {isCorrect ? (
                 <>
                   <CheckCircleIcon color="success" fontSize="small" />
@@ -397,7 +398,7 @@ function QuizScreen({
                 )}
                 {feedbackSenses.map((sense, i) => (
                   <Stack key={i} spacing={0.25}>
-                    <Stack direction="row" alignItems="center" spacing={0.75}>
+                    <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
                       {sense.partOfSpeech && <Chip label={sense.partOfSpeech} size="small" />}
                       <Typography fontWeight={600}>{sense.meaningJa}</Typography>
                     </Stack>
@@ -421,7 +422,7 @@ function QuizScreen({
               </Stack>
             )}
 
-            <Stack direction="row" spacing={1.25} useFlexGap flexWrap="wrap">
+            <Stack direction="row" spacing={1.25} useFlexGap sx={{ flexWrap: 'wrap' }}>
               <Button variant="contained" endIcon={<ArrowForwardIcon />} onClick={onNext}>
                 {isLast ? '結果を見る' : '次へ'}
               </Button>
@@ -447,7 +448,7 @@ function ResultScreen({ total, score, wrongWords, onRestart }) {
   return (
     <Card>
       <CardContent>
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
           <EmojiEventsIcon color="warning" />
           <Typography variant="h5" component="h2">
             テスト結果

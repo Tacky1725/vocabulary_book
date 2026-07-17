@@ -224,7 +224,13 @@ function SearchTab({ words, updateWords }) {
 
   return (
     <Box>
-      <Stack component="form" direction="row" spacing={1} onSubmit={handleSearch} sx={{ mb: 2 }}>
+      <Stack
+        component="form"
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1}
+        onSubmit={handleSearch}
+        sx={{ mb: 2 }}
+      >
         <TextField
           fullWidth
           size="small"
@@ -280,7 +286,7 @@ function SearchTab({ words, updateWords }) {
           </Box>
 
           <Box sx={{ mb: 2 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+            <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
               <Typography variant="body2" color="text.secondary">
                 意味候補（チェックした日本語の意味だけが登録されます）
               </Typography>
@@ -307,7 +313,7 @@ function SearchTab({ words, updateWords }) {
                   mb: 1,
                 }}
               >
-                <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
                   <FormControlLabel
                     sx={{ minWidth: 0, flex: 1, mr: 1 }}
                     control={
@@ -332,7 +338,7 @@ function SearchTab({ words, updateWords }) {
                     {sense.translating ? '翻訳中…' : sense.meaningJa.trim() ? '再翻訳' : '訳す'}
                   </Button>
                 </Stack>
-                <Stack direction="row" flexWrap="wrap" alignItems="baseline" spacing={1} sx={{ mt: 0.5 }}>
+                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'baseline', mt: 0.5 }}>
                   {sense.partOfSpeech && <Chip label={sense.partOfSpeech} size="small" />}
                   <Typography variant="body2" color="text.secondary">
                     {sense.meaningEn.trim() || '（未入力の定義）'}
@@ -428,7 +434,7 @@ function SearchTab({ words, updateWords }) {
               （学習記録は保持されます）
             </Alert>
           ) : (
-            <Stack direction="row" alignItems="center" spacing={2}>
+            <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
               <Button variant="contained" onClick={handleAdd} disabled={!form.word.trim()}>
                 単語帳に追加
               </Button>
