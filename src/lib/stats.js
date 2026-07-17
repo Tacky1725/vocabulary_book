@@ -129,6 +129,20 @@ export function buildActivityCalendar(sessions, { weeks = 26, now = new Date() }
   return { weeks: weekCols, months, maxCount, totalDays, totalCount }
 }
 
+// 今日（ローカル日付）の学習実績を返す。デイリーゴールの進捗表示に使う。
+// answeredToday: 今日の sessions の total 合計 / newWordsToday: addedAt が今日の単語数。
+// 実績は保存せず、sessions と words.addedAt から毎回算出する（正本を二重に持たない）。
+export function calcTodayProgress(words, sessions, now = new Date()) {
+  const today = toLocalDateKey(now.toISOString())
+  const answeredToday = sessions
+    .filter((s) => toLocalDateKey(s.date) === today)
+    .reduce((sum, s) => sum + (s.total ?? 0), 0)
+  const newWordsToday = words.filter(
+    (w) => w.addedAt && toLocalDateKey(w.addedAt) === today
+  ).length
+  return { answeredToday, newWordsToday }
+}
+
 // ダッシュボード用サマリー
 export function calcSummary(words, sessions) {
   const totalAnswers = sessions.reduce((sum, s) => sum + s.total, 0)
