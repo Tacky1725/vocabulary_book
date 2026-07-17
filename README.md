@@ -38,7 +38,7 @@ bank,the land alongside a river,土手,/bæŋk/,noun,We walked along the bank.
 
 1. **`vite.config.js` の `base` をリポジトリ名に合わせる**
 
-   `https://<ユーザー名>.github.io/<リポジトリ名>/` で公開されるため、`base: '/<リポジトリ名>/'` に変更してください（現在は `/vocablary_book/` になっています）。
+   `https://<ユーザー名>.github.io/<リポジトリ名>/` で公開されるため、`base: '/<リポジトリ名>/'` に変更してください（現在はこのリポジトリ名に合わせて `/vocabulary_book/` になっています）。
 
 2. **GitHubリポジトリを作成して push**
 
