@@ -15,10 +15,11 @@ import {
   writeBatch,
 } from 'firebase/firestore'
 import { db } from './firebase.js'
-import { loadLegacyTestSessions, loadLegacyWords } from './storage.js'
+import { loadLegacyTestSessions, loadLegacyWords, normalizeWord } from './storage.js'
 
 const wordsCol = (uid) => collection(db, 'users', uid, 'words')
 const sessionsDoc = (uid) => doc(db, 'users', uid, 'meta', 'testSessions')
+const settingsDoc = (uid) => doc(db, 'users', uid, 'meta', 'settings')
 
 // Firestore のコレクションに固有の順序はないため、追加日時（同時刻は id）で表示順を安定させる。
 // ISO 8601 文字列は辞書順比較で時系列順になる。
@@ -31,10 +32,12 @@ function sortWords(words) {
 }
 
 // 単語一覧の購読。オフライン時は IndexedDB キャッシュから配信される。戻り値は購読解除関数。
+// 読み込み時に normalizeWord を通し、旧形式の変換と新フィールドのデフォルト補完を行う
+// （ローカル state を埋めるだけで Firestore へは書き戻さない。README「共通の設計判断 B」）。
 export function subscribeWords(uid, onChange) {
   return onSnapshot(
     wordsCol(uid),
-    (snap) => onChange(sortWords(snap.docs.map((d) => d.data()))),
+    (snap) => onChange(sortWords(snap.docs.map((d) => normalizeWord(d.data())))),
     (err) => console.error('単語一覧の購読に失敗しました', err)
   )
 }
@@ -94,6 +97,32 @@ export async function recordTestSession(uid, { total, correct }) {
   } catch (e) {
     console.error('テスト履歴の保存に失敗しました', e)
     return { ok: false, error: 'テスト履歴の保存に失敗しました' }
+  }
+}
+
+// ---- ユーザー設定（meta/settings） ----
+// デイリーゴール等のユーザー設定を置く単一ドキュメント（README「共通の設計判断 A」）。
+// meta サブコレクション配下なので既存ルール（users/{uid}/{document=**}）がカバーし、
+// セキュリティルールの変更は不要。各機能が必要なキーを merge で足していく。
+
+// 設定ドキュメントの購読。未作成なら {} を配信する。戻り値は購読解除関数。
+export function subscribeSettings(uid, onChange) {
+  return onSnapshot(
+    settingsDoc(uid),
+    (snap) => onChange(snap.data() ?? {}),
+    (err) => console.error('設定の購読に失敗しました', err)
+  )
+}
+
+// 設定の部分更新。merge: true でドキュメント全体を上書きせず patch したキーだけ差し替える
+// （他機能が同じ settings ドキュメントにキーを足す前提。丸ごと上書きしないこと）。
+export async function saveSettings(uid, patch) {
+  try {
+    await setDoc(settingsDoc(uid), patch, { merge: true })
+    return { ok: true }
+  } catch (e) {
+    console.error('設定の保存に失敗しました', e)
+    return { ok: false, error: '設定の保存に失敗しました' }
   }
 }
 

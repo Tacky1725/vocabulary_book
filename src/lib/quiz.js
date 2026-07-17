@@ -7,8 +7,9 @@ export const MIN_WORDS_FOR_TEST = 4
 // 出題モード定義。available: false のものはUI上で「準備中」として無効表示する。
 export const QUIZ_MODES = [
   { id: 'random', label: 'ランダム出題', available: true },
-  { id: 'recent', label: '直近追加した語', available: false },
-  { id: 'weak', label: '苦手克服（正答率が低い語を優先）', available: false },
+  { id: 'recent', label: '直近追加した語', available: true },
+  { id: 'unlearned', label: '未受験の語（まだ出題していない語）', available: true },
+  { id: 'weak', label: '苦手克服（正答率が低い語を優先）', available: true },
 ]
 
 function shuffle(array) {
@@ -20,12 +21,41 @@ function shuffle(array) {
   return a
 }
 
-// モードID → 出題する単語を選ぶ関数。
-// 将来の追加例:
-//   recent: (words, count) => [...words].sort((a, b) => b.addedAt.localeCompare(a.addedAt)).slice(0, count)
-//   weak:   (words, count) => 正答率昇順にソートして上位count件
+// 試行回数（正答+誤答）。未受験の判定と正答率の分母に使う。
+function attempts(w) {
+  return (w.correctCount ?? 0) + (w.incorrectCount ?? 0)
+}
+
+// 正答率。未受験(試行0)は「苦手と断定できない」ため Infinity で最後尾へ回す。
+function accuracy(w) {
+  const total = attempts(w)
+  return total === 0 ? Infinity : (w.correctCount ?? 0) / total
+}
+
+// 苦手度の比較: 正答率が低い順。同率なら誤答数が多い方を優先する（説明可能な単純指標）。
+function byWeakness(a, b) {
+  return accuracy(a) - accuracy(b) || (b.incorrectCount ?? 0) - (a.incorrectCount ?? 0)
+}
+
+// モードID → 出題する単語を選ぶ関数（(words, count) => 出題順の配列）。
+// いずれもイミュータブル（元配列を破壊しない）。新モードはここにエントリを足すだけ。
 const QUESTION_PICKERS = {
   random: (words, count) => shuffle(words).slice(0, count),
+  // 追加日の新しい順。addedAt は ISO 文字列なので辞書順比較で時系列順になる（cloud.js の sortWords と同じ発想）。
+  recent: (words, count) =>
+    [...words]
+      .sort((a, b) => String(b.addedAt ?? '').localeCompare(String(a.addedAt ?? '')))
+      .slice(0, count),
+  // 未受験のみ: まだ一度も出題されていない語(試行0)だけを、追加が古い順（積み残しの消化）に出す。
+  // 対象を絞るため件数が count / MIN_WORDS_FOR_TEST に満たないことがある（開始判定は TestPage 側）。
+  unlearned: (words, count) =>
+    [...words]
+      .filter((w) => attempts(w) === 0)
+      .sort((a, b) => String(a.addedAt ?? '').localeCompare(String(b.addedAt ?? '')))
+      .slice(0, count),
+  // 苦手優先: 正答率の低い順（byWeakness）。未受験は accuracy=Infinity で最後尾。
+  // 未受験を優先的に出したいニーズは unlearned モード（および #3 SRS: 新規語は常に due）でカバーする。
+  weak: (words, count) => [...words].sort(byWeakness).slice(0, count),
 }
 
 // 出題対象の単語リストを選ぶ。count が null/undefined なら全問。

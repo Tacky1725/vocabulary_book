@@ -61,12 +61,18 @@ export default function TestPage() {
 
   // 出題対象: 日本語訳がある単語のみ（正解選択肢が作れないため）
   const eligibleWords = useMemo(() => words.filter(hasMeaningJa), [words])
-  const canStart = eligibleWords.length >= MIN_WORDS_FOR_TEST
+  // 選択中モードで実際に出題できる語（count=null で全件）。ピッカー自身を単一の真実として使う。
+  // random/recent/weak は eligibleWords 全件だが、unlearned のようにフィルタするモードは減る。
+  const modeWords = useMemo(() => pickQuestionWords(eligibleWords, null, mode), [eligibleWords, mode])
+  const hasEnoughEligible = eligibleWords.length >= MIN_WORDS_FOR_TEST
+  // 全体・モード別の両方で最低語数を満たすこと（フィルタするモードはモード側が不足しうる）。
+  const canStart = hasEnoughEligible && modeWords.length >= MIN_WORDS_FOR_TEST
+  const currentModeLabel = QUIZ_MODES.find((m) => m.id === mode)?.label ?? ''
 
   function startTest() {
     const count = countOption === 'all' ? null : Number(countOption)
     const picked = pickQuestionWords(eligibleWords, count, mode)
-    if (picked.length === 0) return
+    if (picked.length < MIN_WORDS_FOR_TEST) return
     setQuestions(buildQuestions(picked, eligibleWords))
     setCurrentIndex(0)
     setSelectedAnswer(null)
@@ -191,15 +197,23 @@ export default function TestPage() {
         </FormControl>
 
         <Typography color="text.secondary" sx={{ mb: 2 }}>
-          出題対象: {eligibleWords.length} 語（日本語訳のある単語）
+          出題対象: {modeWords.length} 語（{currentModeLabel}）
         </Typography>
 
-        {!canStart && (
+        {!hasEnoughEligible && (
           <Alert severity="error" sx={{ mb: 2 }}>
             テストを開始するには日本語訳のある単語が{MIN_WORDS_FOR_TEST}語以上必要です。
             <Link component={RouterLink} to="/add" sx={{ ml: 0.5 }}>
               単語を追加する
             </Link>
+          </Alert>
+        )}
+
+        {/* 全体は足りているが、選択モードの出題対象が不足しているケース（unlearned 等） */}
+        {hasEnoughEligible && !canStart && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            「{currentModeLabel}」の出題対象が{MIN_WORDS_FOR_TEST}
+            語未満です。別のモードを選ぶか、単語を追加してください。
           </Alert>
         )}
 
