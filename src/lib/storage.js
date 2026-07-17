@@ -11,6 +11,7 @@ const LEGACY_WORDS_KEY = 'vocab-app:words'
 const LEGACY_SESSIONS_KEY = 'vocab-app:test-sessions'
 const wordsMirrorKey = (uid) => `vocab-app:words:${uid}`
 const sessionsMirrorKey = (uid) => `vocab-app:test-sessions:${uid}`
+const settingsMirrorKey = (uid) => `vocab-app:settings:${uid}`
 
 function loadJson(key, fallback) {
   try {
@@ -52,9 +53,32 @@ function migrateWord(w) {
   }
 }
 
+// Firestore / localStorage から読み込んだ単語エントリを「表示用の完全な形」に正規化する純関数。
+// 役割は読み込み時 migration の一本化:
+//   1. 旧形式（senses 無し・meaningJa 等がトップレベル）を senses 配列形式へ変換（migrateWord）
+//   2. 欠けているフィールドにデフォルトを補う（後方互換）
+// 今後フィールドを追加する機能（#3 srs / #5 cefr・categories 等）は、createWordEntry の
+// デフォルトと対にして「ここに1行」足すこと（デフォルト補完のロジックを分散させない）。
+//
+// 重要: これはローカル state を埋めるだけで Firestore へは書き戻さない（subscribeWords は
+// 読み取り専用）。既存ドキュメントを壊さず、ユーザーが次にその単語を編集・回答したとき
+// updateWords 経由で新フィールドごと保存される（README「共通の設計判断 B」の段階移行）。
+export function normalizeWord(w) {
+  const migrated = migrateWord(w)
+  return {
+    phonetic: '',
+    masteryLevel: 0,
+    correctCount: 0,
+    incorrectCount: 0,
+    lastTestedAt: null,
+    ...migrated,
+    senses: Array.isArray(migrated.senses) ? migrated.senses : [],
+  }
+}
+
 // 旧バージョン（Firestore 導入前）のデータ読み込み。初回移行専用。
 export function loadLegacyWords() {
-  return loadJson(LEGACY_WORDS_KEY, []).map(migrateWord)
+  return loadJson(LEGACY_WORDS_KEY, []).map(normalizeWord)
 }
 
 export function saveWordsMirror(uid, words) {
@@ -88,4 +112,12 @@ export function loadLegacyTestSessions() {
 
 export function saveTestSessionsMirror(uid, sessions) {
   saveJson(sessionsMirrorKey(uid), sessions)
+}
+
+// ---- ユーザー設定（meta/settings のミラー） ----
+// settings はオブジェクト（配列でない）。saveJson は保存時に JSON.stringify するだけなので
+// そのまま使える（loadJson の Array.isArray 判定は読み込み専用で、設定ミラーは書き込み専用の
+// バックアップなので読み戻さない）。
+export function saveSettingsMirror(uid, settings) {
+  saveJson(settingsMirrorKey(uid), settings)
 }
