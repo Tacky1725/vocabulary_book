@@ -7,9 +7,9 @@ export const MIN_WORDS_FOR_TEST = 4
 // 出題モード定義。available: false のものはUI上で「準備中」として無効表示する。
 export const QUIZ_MODES = [
   { id: 'random', label: 'ランダム出題', available: true },
-  { id: 'recent', label: '直近追加した語', available: true },
+  { id: 'recent', label: '直近に追加した語', available: true },
   { id: 'unlearned', label: '未受験の語（まだ出題していない語）', available: true },
-  { id: 'weak', label: '苦手克服（正答率が低い語を優先）', available: true },
+  { id: 'weak', label: 'ニガテ克服（正答率が低い語を優先）', available: true },
 ]
 
 function shuffle(array) {
@@ -26,13 +26,13 @@ function attempts(w) {
   return (w.correctCount ?? 0) + (w.incorrectCount ?? 0)
 }
 
-// 正答率。未受験(試行0)は「苦手と断定できない」ため Infinity で最後尾へ回す。
+// 正答率。未受験(試行0)は「ニガテと断定できない」ため Infinity で最後尾へ回す。
 function accuracy(w) {
   const total = attempts(w)
   return total === 0 ? Infinity : (w.correctCount ?? 0) / total
 }
 
-// 苦手度の比較: 正答率が低い順。同率なら誤答数が多い方を優先する（説明可能な単純指標）。
+// ニガテ度の比較: 正答率が低い順。同率なら誤答数が多い方を優先する（説明可能な単純指標）。
 function byWeakness(a, b) {
   return accuracy(a) - accuracy(b) || (b.incorrectCount ?? 0) - (a.incorrectCount ?? 0)
 }
@@ -53,7 +53,7 @@ const QUESTION_PICKERS = {
       .filter((w) => attempts(w) === 0)
       .sort((a, b) => String(a.addedAt ?? '').localeCompare(String(b.addedAt ?? '')))
       .slice(0, count),
-  // 苦手優先: 正答率の低い順（byWeakness）。未受験は accuracy=Infinity で最後尾。
+  // ニガテ優先: 正答率の低い順（byWeakness）。未受験は accuracy=Infinity で最後尾。
   // 未受験を優先的に出したいニーズは unlearned モード（および #3 SRS: 新規語は常に due）でカバーする。
   weak: (words, count) => [...words].sort(byWeakness).slice(0, count),
 }

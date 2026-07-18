@@ -16,6 +16,11 @@ import Link from '@mui/material/Link'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemText from '@mui/material/ListItemText'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
+import Autocomplete from '@mui/material/Autocomplete'
+import TextField from '@mui/material/TextField'
+import FilterAltOffIcon from '@mui/icons-material/FilterAltOff'
 import QuizIcon from '@mui/icons-material/Quiz'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
@@ -33,6 +38,7 @@ import {
   markAsMastered,
 } from '../lib/quiz.js'
 import { hasMeaningJa, joinedMeaningJa } from '../lib/senses.js'
+import { CEFR_LEVELS, collectKnownCategories } from '../lib/attributes.js'
 import { useWords } from '../hooks/useWords.js'
 import { useTestSessions } from '../hooks/useTestSessions.js'
 
@@ -50,6 +56,9 @@ export default function TestPage() {
   const [phase, setPhase] = useState('setup')
   const [mode, setMode] = useState('random')
   const [countOption, setCountOption] = useState('10')
+  // 出題範囲フィルタ: 出題モード（QUESTION_PICKERS）とは直交する絞り込み。空配列は「絞り込みなし」
+  const [cefrFilter, setCefrFilter] = useState([])
+  const [categoryFilter, setCategoryFilter] = useState([])
 
   // 出題中の状態
   const [questions, setQuestions] = useState([])
@@ -61,17 +70,35 @@ export default function TestPage() {
 
   // 出題対象: 日本語訳がある単語のみ（正解選択肢が作れないため）
   const eligibleWords = useMemo(() => words.filter(hasMeaningJa), [words])
+  const knownCategories = useMemo(() => collectKnownCategories(words), [words])
+  // CEFR・カテゴリによる出題範囲フィルタ（出題モードとは直交）。空配列は絞り込みなし。
+  // ダミー選択肢の多様性のため、buildQuestions には絞り込み前の eligibleWords を渡す（下記）。
+  const filteredWords = useMemo(() => {
+    let filtered = eligibleWords
+    if (cefrFilter.length > 0) filtered = filtered.filter((w) => cefrFilter.includes(w.cefr))
+    if (categoryFilter.length > 0) {
+      const wanted = categoryFilter.map((t) => t.toLowerCase())
+      filtered = filtered.filter((w) =>
+        (w.categories ?? []).some((tag) => wanted.includes(tag.toLowerCase()))
+      )
+    }
+    return filtered
+  }, [eligibleWords, cefrFilter, categoryFilter])
+  const isFilteringRange = cefrFilter.length > 0 || categoryFilter.length > 0
   // 選択中モードで実際に出題できる語（count=null で全件）。ピッカー自身を単一の真実として使う。
-  // random/recent/weak は eligibleWords 全件だが、unlearned のようにフィルタするモードは減る。
-  const modeWords = useMemo(() => pickQuestionWords(eligibleWords, null, mode), [eligibleWords, mode])
+  // random/recent/weak は filteredWords 全件だが、unlearned のようにフィルタするモードは減る。
+  const modeWords = useMemo(
+    () => pickQuestionWords(filteredWords, null, mode),
+    [filteredWords, mode]
+  )
   const hasEnoughEligible = eligibleWords.length >= MIN_WORDS_FOR_TEST
-  // 全体・モード別の両方で最低語数を満たすこと（フィルタするモードはモード側が不足しうる）。
+  // 全体・モード別・範囲フィルタの三方で最低語数を満たすこと。
   const canStart = hasEnoughEligible && modeWords.length >= MIN_WORDS_FOR_TEST
   const currentModeLabel = QUIZ_MODES.find((m) => m.id === mode)?.label ?? ''
 
   function startTest() {
     const count = countOption === 'all' ? null : Number(countOption)
-    const picked = pickQuestionWords(eligibleWords, count, mode)
+    const picked = pickQuestionWords(filteredWords, count, mode)
     if (picked.length < MIN_WORDS_FOR_TEST) return
     setQuestions(buildQuestions(picked, eligibleWords))
     setCurrentIndex(0)
@@ -196,6 +223,47 @@ export default function TestPage() {
           </Select>
         </FormControl>
 
+        <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+          <Typography variant="subtitle2" color="text.secondary">
+            出題範囲（CEFR・カテゴリ）
+          </Typography>
+          <Button
+            size="small"
+            startIcon={<FilterAltOffIcon />}
+            onClick={() => {
+              setCefrFilter([])
+              setCategoryFilter([])
+            }}
+            disabled={!isFilteringRange}
+          >
+            絞り込みをリセット
+          </Button>
+        </Stack>
+        <ToggleButtonGroup
+          value={cefrFilter}
+          onChange={(e, newValue) => setCefrFilter(newValue)}
+          aria-label="CEFRで絞り込み"
+          color="primary"
+          size="small"
+          sx={{ mb: 2, flexWrap: 'wrap' }}
+        >
+          {CEFR_LEVELS.map((level) => (
+            <ToggleButton key={level} value={level} aria-label={level}>
+              {level}
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+
+        <Autocomplete
+          multiple
+          size="small"
+          options={knownCategories}
+          value={categoryFilter}
+          onChange={(e, newValue) => setCategoryFilter(newValue)}
+          sx={{ mb: 2 }}
+          renderInput={(params) => <TextField {...params} label="出題範囲（カテゴリ）" />}
+        />
+
         <Typography color="text.secondary" sx={{ mb: 2 }}>
           出題対象: {modeWords.length} 語（{currentModeLabel}）
         </Typography>
@@ -209,11 +277,13 @@ export default function TestPage() {
           </Alert>
         )}
 
-        {/* 全体は足りているが、選択モードの出題対象が不足しているケース（unlearned 等） */}
+        {/* 全体は足りているが、選択モード・範囲フィルタでの出題対象が不足しているケース */}
         {hasEnoughEligible && !canStart && (
           <Alert severity="warning" sx={{ mb: 2 }}>
-            「{currentModeLabel}」の出題対象が{MIN_WORDS_FOR_TEST}
-            語未満です。別のモードを選ぶか、単語を追加してください。
+            「{currentModeLabel}」
+            {isFilteringRange ? '・選択した出題範囲' : ''}の出題対象が{MIN_WORDS_FOR_TEST}
+            語未満です。{isFilteringRange ? '範囲を広げる、別のモードを選ぶ、' : '別のモードを選ぶか、'}
+            単語を追加してください。
           </Alert>
         )}
 
