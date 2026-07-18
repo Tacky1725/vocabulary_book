@@ -29,7 +29,6 @@ import TableContainer from '@mui/material/TableContainer'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import { useTheme } from '@mui/material/styles'
 import FileDownloadIcon from '@mui/icons-material/FileDownload'
-import SaveAltIcon from '@mui/icons-material/SaveAlt'
 import SearchIcon from '@mui/icons-material/Search'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -356,13 +355,13 @@ export default function WordList() {
     const q = deferredQuery.trim().toLowerCase()
     let filtered = q
       ? words.filter((w) => {
-          const targets = [
-            w.word,
-            w.phonetic,
-            ...(w.senses ?? []).flatMap((s) => [s.meaningJa, s.meaningEn]),
-          ]
-          return targets.some((v) => (v ?? '').toLowerCase().includes(q))
-        })
+        const targets = [
+          w.word,
+          w.phonetic,
+          ...(w.senses ?? []).flatMap((s) => [s.meaningJa, s.meaningEn]),
+        ]
+        return targets.some((v) => (v ?? '').toLowerCase().includes(q))
+      })
       : words.slice()
 
     if (cefrFilter.length > 0) {
@@ -538,17 +537,17 @@ export default function WordList() {
               disabled={words.length === 0}
               sx={{ flex: { xs: 1, sm: 'initial' } }}
             >
-              CSVエクスポート
+              CSV出力
             </Button>
             <Button
               variant="outlined"
               size="small"
-              startIcon={<SaveAltIcon />}
+              startIcon={<FileDownloadIcon />}
               onClick={handleExportDiqt}
               disabled={words.length === 0}
-              sx={{ flex: { xs: 1, sm: 'initial' } }}
+              sx={{ textTransform: 'none', flex: { xs: 1, sm: 'initial' } }}
             >
-              DiQt形式でエクスポート
+              DiQt形式で出力
             </Button>
             <Button
               variant="outlined"
@@ -558,7 +557,7 @@ export default function WordList() {
               disabled={words.length === 0 || bulkCefrRunning}
               sx={{ flex: { xs: 1, sm: 'initial' } }}
             >
-              {bulkCefrRunning ? '判定中…' : 'CEFRを一括自動判定'}
+              {bulkCefrRunning ? '判定中…' : 'CEFR一括判定'}
             </Button>
           </Stack>
         </Stack>
