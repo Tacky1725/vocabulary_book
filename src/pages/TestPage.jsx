@@ -187,7 +187,7 @@ export default function TestPage() {
           </Typography>
         </Stack>
         <Typography color="text.secondary" sx={{ mb: 2 }}>
-          出題モードと問題数を選んでテストを開始してください。
+          出題モードと問題数を選んでください。
         </Typography>
 
         <FormControl fullWidth sx={{ mb: 2 }}>

@@ -6,9 +6,9 @@ export const MIN_WORDS_FOR_TEST = 4
 
 // 出題モード定義。available: false のものはUI上で「準備中」として無効表示する。
 export const QUIZ_MODES = [
-  { id: 'random', label: 'ランダム出題', available: true },
+  { id: 'random', label: 'ランダム', available: true },
   { id: 'recent', label: '直近に追加した語', available: true },
-  { id: 'unlearned', label: '未受験の語（まだ出題していない語）', available: true },
+  { id: 'unlearned', label: '未出題の語（まだ出題していない語）', available: true },
   { id: 'weak', label: 'ニガテ克服（正答率が低い語を優先）', available: true },
 ]
 
@@ -21,12 +21,12 @@ function shuffle(array) {
   return a
 }
 
-// 試行回数（正答+誤答）。未受験の判定と正答率の分母に使う。
+// 試行回数（正答+誤答）。未出題の判定と正答率の分母に使う。
 function attempts(w) {
   return (w.correctCount ?? 0) + (w.incorrectCount ?? 0)
 }
 
-// 正答率。未受験(試行0)は「ニガテと断定できない」ため Infinity で最後尾へ回す。
+// 正答率。未出題(試行0)は「ニガテと断定できない」ため Infinity で最後尾へ回す。
 function accuracy(w) {
   const total = attempts(w)
   return total === 0 ? Infinity : (w.correctCount ?? 0) / total
@@ -46,15 +46,15 @@ const QUESTION_PICKERS = {
     [...words]
       .sort((a, b) => String(b.addedAt ?? '').localeCompare(String(a.addedAt ?? '')))
       .slice(0, count),
-  // 未受験のみ: まだ一度も出題されていない語(試行0)だけを、追加が古い順（積み残しの消化）に出す。
+  // 未出題のみ: まだ一度も出題されていない語(試行0)だけを、追加が古い順（積み残しの消化）に出す。
   // 対象を絞るため件数が count / MIN_WORDS_FOR_TEST に満たないことがある（開始判定は TestPage 側）。
   unlearned: (words, count) =>
     [...words]
       .filter((w) => attempts(w) === 0)
       .sort((a, b) => String(a.addedAt ?? '').localeCompare(String(b.addedAt ?? '')))
       .slice(0, count),
-  // ニガテ優先: 正答率の低い順（byWeakness）。未受験は accuracy=Infinity で最後尾。
-  // 未受験を優先的に出したいニーズは unlearned モード（および #3 SRS: 新規語は常に due）でカバーする。
+  // ニガテ優先: 正答率の低い順（byWeakness）。未出題は accuracy=Infinity で最後尾。
+  // 未出題を優先的に出したいニーズは unlearned モード（および #3 SRS: 新規語は常に due）でカバーする。
   weak: (words, count) => [...words].sort(byWeakness).slice(0, count),
 }
 

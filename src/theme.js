@@ -4,7 +4,8 @@ export const theme = createTheme({
   palette: {
     background: { default: '#f5f6fa', paper: '#ffffff' },
     text: { primary: '#2c3145', secondary: '#7a8095' },
-    primary: { main: '#3d6bd8', dark: '#2f54ac' },
+    primary: { main: '#74006b' },
+    secondary: { main: '#e9042f' },
     error: { main: '#d64545' },
     success: { main: '#2e9e5b' },
     divider: '#dfe2ec',
@@ -12,6 +13,7 @@ export const theme = createTheme({
   shape: { borderRadius: 10 },
   typography: {
     fontFamily: [
+      'LINE Seed JP',
       'Roboto',
       'Helvetica Neue',
       'Arial',
