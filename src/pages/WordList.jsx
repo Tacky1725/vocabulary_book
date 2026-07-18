@@ -17,6 +17,8 @@ import Autocomplete from '@mui/material/Autocomplete'
 import Link from '@mui/material/Link'
 import Rating from '@mui/material/Rating'
 import Chip from '@mui/material/Chip'
+import Checkbox from '@mui/material/Checkbox'
+import ListItemText from '@mui/material/ListItemText'
 import Pagination from '@mui/material/Pagination'
 import Table from '@mui/material/Table'
 import TableHead from '@mui/material/TableHead'
@@ -35,6 +37,7 @@ import AddIcon from '@mui/icons-material/Add'
 import SaveIcon from '@mui/icons-material/Save'
 import CloseIcon from '@mui/icons-material/Close'
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
+import FilterAltOffIcon from '@mui/icons-material/FilterAltOff'
 import Alert from '@mui/material/Alert'
 import { useWords } from '../hooks/useWords.js'
 import { wordsToCsv, wordsToDiqtCsv, downloadCsv } from '../lib/csv.js'
@@ -50,6 +53,12 @@ const SORT_OPTIONS = [
   { value: 'mastery-asc', label: '習熟度（低い順）' },
   { value: 'mastery-desc', label: '習熟度（高い順）' },
 ]
+
+// CEFR絞り込みの「未登録」選択肢用の値。cefrは空文字/undefinedがあり得るため、
+// Selectのvalueとして扱えるようセンチネル文字列にまとめる。
+const CEFR_UNSET = '__unset__'
+const CEFR_FILTER_OPTIONS = [...CEFR_LEVELS, CEFR_UNSET]
+const CEFR_SELECT_ALL = '__select_all__'
 
 // 1ページあたりの表示件数。数千語登録時にテーブル全件をDOM描画すると
 // 検索・並び替えのたびに重くなるため、表示件数を区切って再調停コストを抑える。
@@ -336,7 +345,7 @@ export default function WordList() {
   const [editingId, setEditingId] = useState(null)
   const [draft, setDraft] = useState(null)
   const [editError, setEditError] = useState('')
-  const [cefrFilter, setCefrFilter] = useState('')
+  const [cefrFilter, setCefrFilter] = useState([])
   const [categoryFilter, setCategoryFilter] = useState([])
   const [bulkCefrRunning, setBulkCefrRunning] = useState(false)
   const [bulkCefrResult, setBulkCefrResult] = useState(null)
@@ -355,7 +364,9 @@ export default function WordList() {
         })
       : words.slice()
 
-    if (cefrFilter) filtered = filtered.filter((w) => w.cefr === cefrFilter)
+    if (cefrFilter.length > 0) {
+      filtered = filtered.filter((w) => cefrFilter.includes(w.cefr || CEFR_UNSET))
+    }
     if (categoryFilter.length > 0) {
       const wanted = categoryFilter.map((t) => t.toLowerCase())
       filtered = filtered.filter((w) =>
@@ -487,7 +498,8 @@ export default function WordList() {
     setBulkCefrResult({ judged: cefrById.size, total: targets.length })
   }
 
-  const isFiltering = query.trim() !== '' || cefrFilter !== '' || categoryFilter.length > 0
+  const isFiltering = query.trim() !== '' || cefrFilter.length > 0 || categoryFilter.length > 0
+  const isFilteringRange = cefrFilter.length > 0 || categoryFilter.length > 0
 
   // 編集フォームに渡す共通 props（テーブル・カードで同じフォームを使う）
   const editFormProps = {
@@ -605,20 +617,41 @@ export default function WordList() {
                 ))}
               </Select>
               <Select
+                multiple
                 value={cefrFilter}
                 size="small"
                 displayEmpty
                 onChange={(e) => {
-                  setCefrFilter(e.target.value)
+                  const value = e.target.value
+                  // Excelの絞り込みと同様、「すべて選択」がクリックされた行だけ特別扱いする
+                  // （全選択中の解除／一部選択中や未選択からの全選択をトグルする）。
+                  if (value[value.length - 1] === CEFR_SELECT_ALL) {
+                    setCefrFilter(cefrFilter.length === CEFR_FILTER_OPTIONS.length ? [] : CEFR_FILTER_OPTIONS)
+                  } else {
+                    setCefrFilter(value)
+                  }
                   setPage(1)
                 }}
+                renderValue={(selected) =>
+                  selected.length === 0 || selected.length === CEFR_FILTER_OPTIONS.length
+                    ? 'CEFR: すべて'
+                    : selected.map((v) => (v === CEFR_UNSET ? '未登録' : v)).join(', ')
+                }
                 inputProps={{ 'aria-label': 'CEFRで絞り込み' }}
-                sx={{ minWidth: 120 }}
+                sx={{ minWidth: 160 }}
               >
-                <MenuItem value="">CEFR: すべて</MenuItem>
-                {CEFR_LEVELS.map((level) => (
+                <MenuItem value={CEFR_SELECT_ALL}>
+                  <Checkbox
+                    size="small"
+                    checked={cefrFilter.length === CEFR_FILTER_OPTIONS.length}
+                    indeterminate={cefrFilter.length > 0 && cefrFilter.length < CEFR_FILTER_OPTIONS.length}
+                  />
+                  <ListItemText primary="すべて選択" />
+                </MenuItem>
+                {CEFR_FILTER_OPTIONS.map((level) => (
                   <MenuItem key={level} value={level}>
-                    {level}
+                    <Checkbox size="small" checked={cefrFilter.includes(level)} />
+                    <ListItemText primary={level === CEFR_UNSET ? '未登録' : level} />
                   </MenuItem>
                 ))}
               </Select>
@@ -636,6 +669,18 @@ export default function WordList() {
                   <TextField {...params} label="カテゴリで絞り込み" />
                 )}
               />
+              <Button
+                size="small"
+                startIcon={<FilterAltOffIcon />}
+                onClick={() => {
+                  setCefrFilter([])
+                  setCategoryFilter([])
+                  setPage(1)
+                }}
+                disabled={!isFilteringRange}
+              >
+                絞り込みをリセット
+              </Button>
               <Typography
                 color="text.secondary"
                 sx={{ ml: { sm: 'auto' }, whiteSpace: 'nowrap' }}
