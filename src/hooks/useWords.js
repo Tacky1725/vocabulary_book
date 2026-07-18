@@ -10,16 +10,35 @@ export function useWords() {
   const { user } = useAuth()
   const uid = user?.uid ?? null
   const [words, setWords] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState(null)
   // updateWords の連続呼び出しでも直前の状態から差分を取れるよう ref にも持つ
   const wordsRef = useRef([])
 
   useEffect(() => {
-    if (!uid) return undefined
-    return subscribeWords(uid, (next) => {
-      wordsRef.current = next
-      setWords(next)
-      saveWordsMirror(uid, next) // ローカルバックアップ（ユーザーごとに分離）
-    })
+    wordsRef.current = []
+    setWords([])
+    setError(null)
+
+    if (!uid) {
+      setIsLoading(false)
+      return undefined
+    }
+
+    setIsLoading(true)
+    return subscribeWords(
+      uid,
+      (next) => {
+        wordsRef.current = next
+        setWords(next)
+        setIsLoading(false)
+        saveWordsMirror(uid, next) // ローカルバックアップ（ユーザーごとに分離）
+      },
+      (err) => {
+        setIsLoading(false)
+        setError(err)
+      },
+    )
   }, [uid])
 
   const updateWords = useCallback(
@@ -34,5 +53,5 @@ export function useWords() {
     [uid]
   )
 
-  return { words, updateWords }
+  return { words, updateWords, isLoading, error }
 }

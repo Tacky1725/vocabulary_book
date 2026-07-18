@@ -34,11 +34,14 @@ function sortWords(words) {
 // 単語一覧の購読。オフライン時は IndexedDB キャッシュから配信される。戻り値は購読解除関数。
 // 読み込み時に normalizeWord を通し、旧形式の変換と新フィールドのデフォルト補完を行う
 // （ローカル state を埋めるだけで Firestore へは書き戻さない。README「共通の設計判断 B」）。
-export function subscribeWords(uid, onChange) {
+export function subscribeWords(uid, onChange, onError) {
   return onSnapshot(
     wordsCol(uid),
     (snap) => onChange(sortWords(snap.docs.map((d) => normalizeWord(d.data())))),
-    (err) => console.error('単語一覧の購読に失敗しました', err)
+    (err) => {
+      console.error('単語一覧の購読に失敗しました', err)
+      onError?.(err)
+    },
   )
 }
 
@@ -75,14 +78,17 @@ export async function syncWordsDiff(uid, prev, next) {
 }
 
 // テスト実施履歴の購読。戻り値は購読解除関数。
-export function subscribeTestSessions(uid, onChange) {
+export function subscribeTestSessions(uid, onChange, onError) {
   return onSnapshot(
     sessionsDoc(uid),
     (snap) => {
       const data = snap.data()
       onChange(Array.isArray(data?.sessions) ? data.sessions : [])
     },
-    (err) => console.error('テスト履歴の購読に失敗しました', err)
+    (err) => {
+      console.error('テスト履歴の購読に失敗しました', err)
+      onError?.(err)
+    },
   )
 }
 
@@ -106,11 +112,14 @@ export async function recordTestSession(uid, { total, correct }) {
 // セキュリティルールの変更は不要。各機能が必要なキーを merge で足していく。
 
 // 設定ドキュメントの購読。未作成なら {} を配信する。戻り値は購読解除関数。
-export function subscribeSettings(uid, onChange) {
+export function subscribeSettings(uid, onChange, onError) {
   return onSnapshot(
     settingsDoc(uid),
     (snap) => onChange(snap.data() ?? {}),
-    (err) => console.error('設定の購読に失敗しました', err)
+    (err) => {
+      console.error('設定の購読に失敗しました', err)
+      onError?.(err)
+    },
   )
 }
 

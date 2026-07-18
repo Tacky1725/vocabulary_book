@@ -40,6 +40,7 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
 import FilterAltOffIcon from '@mui/icons-material/FilterAltOff'
 import Alert from '@mui/material/Alert'
 import { useWords } from '../hooks/useWords.js'
+import { DataErrorState, LoadingState } from '../components/LoadingState.jsx'
 import { wordsToCsv, wordsToDiqtCsv, downloadCsv } from '../lib/csv.js'
 import { createSense, hasSenseContent } from '../lib/senses.js'
 import { CEFR_LEVELS, collectKnownCategories, normalizeCategories } from '../lib/attributes.js'
@@ -333,7 +334,7 @@ function WordCard({ word, onEdit, onDelete }) {
 }
 
 export default function WordList() {
-  const { words, updateWords } = useWords()
+  const { words, updateWords, isLoading, error } = useWords()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const [query, setQuery] = useState('')
@@ -514,6 +515,9 @@ export default function WordList() {
     knownCategories,
   }
 
+  if (isLoading) return <LoadingState />
+  if (error) return <DataErrorState />
+
   return (
     <Card>
       <CardContent>
@@ -689,7 +693,7 @@ export default function WordList() {
                   ? `${words.length}件中${visibleWords.length}件を表示`
                   : `全${words.length}件`}
                 {visibleWords.length > 0 &&
-                  ` (${(safePage - 1) * PAGE_SIZE + 1}〜${Math.min(safePage * PAGE_SIZE, visibleWords.length)}件目 / ${safePage} / ${totalPages}ページ)`}
+                  ` (${(safePage - 1) * PAGE_SIZE + 1}〜${Math.min(safePage * PAGE_SIZE, visibleWords.length)}件目・${safePage} / ${totalPages}ページ)`}
               </Typography>
             </Stack>
 
@@ -718,9 +722,9 @@ export default function WordList() {
                       <TableCell>単語</TableCell>
                       <TableCell>意味</TableCell>
                       <TableCell>習熟度</TableCell>
-                      <TableCell>正答/誤答</TableCell>
+                      <TableCell>正/誤</TableCell>
                       <TableCell>追加日</TableCell>
-                      <TableCell>操作</TableCell>
+                      <TableCell></TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>

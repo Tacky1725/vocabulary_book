@@ -9,13 +9,31 @@ export function useTestSessions() {
   const { user } = useAuth()
   const uid = user?.uid ?? null
   const [sessions, setSessions] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
-    if (!uid) return undefined
-    return subscribeTestSessions(uid, (next) => {
-      setSessions(next)
-      saveTestSessionsMirror(uid, next) // ローカルバックアップ（ユーザーごとに分離）
-    })
+    setSessions([])
+    setError(null)
+
+    if (!uid) {
+      setIsLoading(false)
+      return undefined
+    }
+
+    setIsLoading(true)
+    return subscribeTestSessions(
+      uid,
+      (next) => {
+        setSessions(next)
+        setIsLoading(false)
+        saveTestSessionsMirror(uid, next) // ローカルバックアップ（ユーザーごとに分離）
+      },
+      (err) => {
+        setIsLoading(false)
+        setError(err)
+      },
+    )
   }, [uid])
 
   // fire-and-forget（オフライン時は SDK がキュー保持し再接続時に送信）
@@ -26,5 +44,5 @@ export function useTestSessions() {
     [uid]
   )
 
-  return { sessions, recordTestSession }
+  return { sessions, recordTestSession, isLoading, error }
 }

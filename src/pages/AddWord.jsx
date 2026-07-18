@@ -28,10 +28,14 @@ import { fetchDictionaryEntry, fetchJapaneseTranslation } from '../lib/api.js'
 import { parseWordsCsv } from '../lib/csv.js'
 import { CEFR_LEVELS, collectKnownCategories, normalizeCategories } from '../lib/attributes.js'
 import { lookupCefr, lookupCefrMany } from '../lib/cefr.js'
+import { DataErrorState, LoadingState } from '../components/LoadingState.jsx'
 
 export default function AddWord() {
-  const { words, updateWords } = useWords()
+  const { words, updateWords, isLoading, error } = useWords()
   const [tab, setTab] = useState('search')
+
+  if (isLoading) return <LoadingState />
+  if (error) return <DataErrorState />
 
   return (
     <Card>

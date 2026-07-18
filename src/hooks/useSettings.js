@@ -11,13 +11,31 @@ export function useSettings() {
   const { user } = useAuth()
   const uid = user?.uid ?? null
   const [settings, setSettings] = useState({})
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
-    if (!uid) return undefined
-    return subscribeSettings(uid, (next) => {
-      setSettings(next)
-      saveSettingsMirror(uid, next) // ローカルバックアップ（ユーザーごとに分離）
-    })
+    setSettings({})
+    setError(null)
+
+    if (!uid) {
+      setIsLoading(false)
+      return undefined
+    }
+
+    setIsLoading(true)
+    return subscribeSettings(
+      uid,
+      (next) => {
+        setSettings(next)
+        setIsLoading(false)
+        saveSettingsMirror(uid, next) // ローカルバックアップ（ユーザーごとに分離）
+      },
+      (err) => {
+        setIsLoading(false)
+        setError(err)
+      },
+    )
   }, [uid])
 
   // 部分更新（merge）。ドキュメント全体を上書きしないよう、変更するキーだけを patch すること。
@@ -29,5 +47,5 @@ export function useSettings() {
     [uid]
   )
 
-  return { settings, updateSettings }
+  return { settings, updateSettings, isLoading, error }
 }
