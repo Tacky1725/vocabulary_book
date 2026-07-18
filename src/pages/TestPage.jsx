@@ -41,6 +41,7 @@ import { hasMeaningJa, joinedMeaningJa } from '../lib/senses.js'
 import { CEFR_LEVELS, collectKnownCategories } from '../lib/attributes.js'
 import { useWords } from '../hooks/useWords.js'
 import { useTestSessions } from '../hooks/useTestSessions.js'
+import { DataErrorState, LoadingState } from '../components/LoadingState.jsx'
 
 const COUNT_OPTIONS = [
   { value: '10', label: '10問' },
@@ -49,8 +50,12 @@ const COUNT_OPTIONS = [
 ]
 
 export default function TestPage() {
-  const { words, updateWords } = useWords()
-  const { recordTestSession } = useTestSessions()
+  const { words, updateWords, isLoading: wordsLoading, error: wordsError } = useWords()
+  const {
+    recordTestSession,
+    isLoading: sessionsLoading,
+    error: sessionsError,
+  } = useTestSessions()
 
   // 画面状態: setup（設定） → quiz（出題中） → result（結果）
   const [phase, setPhase] = useState('setup')
@@ -95,6 +100,9 @@ export default function TestPage() {
   // 全体・モード別・範囲フィルタの三方で最低語数を満たすこと。
   const canStart = hasEnoughEligible && modeWords.length >= MIN_WORDS_FOR_TEST
   const currentModeLabel = QUIZ_MODES.find((m) => m.id === mode)?.label ?? ''
+
+  if (wordsLoading || sessionsLoading) return <LoadingState />
+  if (wordsError || sessionsError) return <DataErrorState />
 
   function startTest() {
     const count = countOption === 'all' ? null : Number(countOption)

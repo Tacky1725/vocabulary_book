@@ -33,6 +33,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import { useWords } from '../hooks/useWords.js'
 import { useTestSessions } from '../hooks/useTestSessions.js'
 import { useSettings } from '../hooks/useSettings.js'
+import { DataErrorState, LoadingState } from '../components/LoadingState.jsx'
 import {
   calcStreak,
   calcMasteryDistribution,
@@ -69,9 +70,14 @@ const MASTERY_BAR_COLOR = {
 }
 
 export default function Dashboard() {
-  const { words } = useWords()
-  const { sessions } = useTestSessions()
-  const { settings, updateSettings } = useSettings()
+  const { words, isLoading: wordsLoading, error: wordsError } = useWords()
+  const { sessions, isLoading: sessionsLoading, error: sessionsError } = useTestSessions()
+  const {
+    settings,
+    updateSettings,
+    isLoading: settingsLoading,
+    error: settingsError,
+  } = useSettings()
 
   const summary = useMemo(() => calcSummary(words, sessions), [words, sessions])
   const streak = useMemo(() => calcStreak(sessions), [sessions])
@@ -90,6 +96,9 @@ export default function Dashboard() {
 
   const hasWords = summary.totalWords > 0
   const hasTests = summary.totalTests > 0
+
+  if (wordsLoading || sessionsLoading || settingsLoading) return <LoadingState />
+  if (wordsError || sessionsError || settingsError) return <DataErrorState />
 
   return (
     <Stack spacing={2}>
