@@ -44,6 +44,8 @@ import { wordsToCsv, wordsToDiqtCsv, downloadCsv } from '../lib/csv.js'
 import { createSense, hasSenseContent } from '../lib/senses.js'
 import { CEFR_LEVELS, collectKnownCategories, normalizeCategories } from '../lib/attributes.js'
 import { lookupCefrMany } from '../lib/cefr.js'
+import { isDue } from '../lib/srs.js'
+import { toLocalDateKey } from '../lib/stats.js'
 
 // 並び替えの選択肢
 const SORT_OPTIONS = [
@@ -101,6 +103,25 @@ function CorrectIncorrect({ word }) {
       </Typography>
     </Box>
   )
+}
+
+function ReviewStatus({ word }) {
+  const dueAt = word.srs?.dueAt
+  if (!dueAt) return <Chip label="未学習" size="small" variant="outlined" />
+
+  if (isDue(word)) {
+    const today = toLocalDateKey(new Date().toISOString())
+    const dueDate = toLocalDateKey(dueAt)
+    return (
+      <Chip
+        label={dueDate < today ? '期限超過' : '今日復習'}
+        size="small"
+        color={dueDate < today ? 'warning' : 'primary'}
+      />
+    )
+  }
+
+  return <Chip label={`次回 ${formatDate(dueAt)}`} size="small" variant="outlined" />
 }
 
 // 語義の一覧表示（品詞チップ＋和訳＋英語定義）。テーブル・カード共用。
@@ -320,6 +341,7 @@ function WordCard({ word, onEdit, onDelete }) {
           sx={{ flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', mt: 1.25 }}
         >
           <MasteryStars level={word.masteryLevel} />
+          <ReviewStatus word={word} />
           <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
             <CorrectIncorrect word={word} />
             <Typography variant="caption" color="text.secondary">
@@ -722,6 +744,7 @@ export default function WordList() {
                       <TableCell>意味</TableCell>
                       <TableCell>習熟度</TableCell>
                       <TableCell>正/誤</TableCell>
+                      <TableCell>復習</TableCell>
                       <TableCell>追加日</TableCell>
                       <TableCell></TableCell>
                     </TableRow>
@@ -730,7 +753,7 @@ export default function WordList() {
                     {pagedWords.map((w) =>
                       w.id === editingId ? (
                         <TableRow key={w.id}>
-                          <TableCell colSpan={6} sx={{ bgcolor: 'action.hover' }}>
+                          <TableCell colSpan={7} sx={{ bgcolor: 'action.hover' }}>
                             <WordEditForm {...editFormProps} />
                           </TableCell>
                         </TableRow>
@@ -763,6 +786,9 @@ export default function WordList() {
                           </TableCell>
                           <TableCell sx={{ whiteSpace: 'nowrap' }}>
                             <CorrectIncorrect word={w} />
+                          </TableCell>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                            <ReviewStatus word={w} />
                           </TableCell>
                           <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(w.addedAt)}</TableCell>
                           <TableCell>

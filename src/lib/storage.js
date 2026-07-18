@@ -6,6 +6,7 @@
 // アプリの読み書きの正は Firestore（lib/cloud.js）であり、ここを直接の保存先にはしない。
 
 import { createSense } from './senses.js'
+import { DEFAULT_SRS } from './srs.js'
 
 const LEGACY_WORDS_KEY = 'vocab-app:words'
 const LEGACY_SESSIONS_KEY = 'vocab-app:test-sessions'
@@ -57,7 +58,7 @@ function migrateWord(w) {
 // 役割は読み込み時 migration の一本化:
 //   1. 旧形式（senses 無し・meaningJa 等がトップレベル）を senses 配列形式へ変換（migrateWord）
 //   2. 欠けているフィールドにデフォルトを補う（後方互換）
-// 今後フィールドを追加する機能（#3 srs / #5 cefr・categories 等）は、createWordEntry の
+// 今後フィールドを追加する機能（#3 srs / #5 cefr・categories / #7 confusableGroupId 等）は、createWordEntry の
 // デフォルトと対にして「ここに1行」足すこと（デフォルト補完のロジックを分散させない）。
 //
 // 重要: これはローカル state を埋めるだけで Firestore へは書き戻さない（subscribeWords は
@@ -75,6 +76,7 @@ export function normalizeWord(w) {
     ...migrated,
     senses: Array.isArray(migrated.senses) ? migrated.senses : [],
     categories: Array.isArray(migrated.categories) ? migrated.categories : [],
+    srs: { ...DEFAULT_SRS, ...(migrated.srs ?? {}) },
   }
 }
 
@@ -102,6 +104,7 @@ export function createWordEntry(fields) {
     lastTestedAt: null,
     cefr: '',
     categories: [],
+    srs: { ...DEFAULT_SRS },
     ...fields,
   }
 }

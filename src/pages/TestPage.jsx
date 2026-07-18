@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link as RouterLink } from 'react-router-dom'
+import { Link as RouterLink, useSearchParams } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
@@ -37,10 +37,18 @@ import {
   applyAnswerResult,
   markAsMastered,
 } from '../lib/quiz.js'
+import {
+  DEFAULT_REVIEW_INTERVALS,
+  applyReviewOutcome,
+  markAsMasteredWithSrs,
+  normalizeReviewIntervals,
+  reviewOutcomeFromAnswer,
+} from '../lib/srs.js'
 import { hasMeaningJa, joinedMeaningJa } from '../lib/senses.js'
 import { CEFR_LEVELS, collectKnownCategories } from '../lib/attributes.js'
 import { useWords } from '../hooks/useWords.js'
 import { useTestSessions } from '../hooks/useTestSessions.js'
+import { useSettings } from '../hooks/useSettings.js'
 import { DataErrorState, LoadingState } from '../components/LoadingState.jsx'
 
 const COUNT_OPTIONS = [
@@ -56,10 +64,20 @@ export default function TestPage() {
     isLoading: sessionsLoading,
     error: sessionsError,
   } = useTestSessions()
+  const {
+    settings,
+    isLoading: settingsLoading,
+    error: settingsError,
+  } = useSettings()
 
   // 画面状態: setup（設定） → quiz（出題中） → result（結果）
+  const [searchParams] = useSearchParams()
+  const initialMode = searchParams.get('mode')
+  const defaultMode = QUIZ_MODES.some((m) => m.id === initialMode && m.available)
+    ? initialMode
+    : 'random'
   const [phase, setPhase] = useState('setup')
-  const [mode, setMode] = useState('random')
+  const [mode, setMode] = useState(defaultMode)
   const [countOption, setCountOption] = useState('10')
   // 出題範囲フィルタ: 出題モード（QUESTION_PICKERS）とは直交する絞り込み。空配列は「絞り込みなし」
   const [cefrFilter, setCefrFilter] = useState([])
@@ -72,10 +90,15 @@ export default function TestPage() {
   const [selectedAnswer, setSelectedAnswer] = useState(null)
   const [score, setScore] = useState(0)
   const [wrongWords, setWrongWords] = useState([])
+  const [activeReviewIntervals, setActiveReviewIntervals] = useState(DEFAULT_REVIEW_INTERVALS)
 
   // 出題対象: 日本語訳がある単語のみ（正解選択肢が作れないため）
   const eligibleWords = useMemo(() => words.filter(hasMeaningJa), [words])
   const knownCategories = useMemo(() => collectKnownCategories(words), [words])
+  const reviewIntervals = useMemo(
+    () => normalizeReviewIntervals(settings.reviewIntervals),
+    [settings.reviewIntervals],
+  )
   // CEFR・カテゴリによる出題範囲フィルタ（出題モードとは直交）。空配列は絞り込みなし。
   // ダミー選択肢の多様性のため、buildQuestions には絞り込み前の eligibleWords を渡す（下記）。
   const filteredWords = useMemo(() => {
@@ -97,22 +120,25 @@ export default function TestPage() {
     [filteredWords, mode]
   )
   const hasEnoughEligible = eligibleWords.length >= MIN_WORDS_FOR_TEST
-  // 全体・モード別・範囲フィルタの三方で最低語数を満たすこと。
-  const canStart = hasEnoughEligible && modeWords.length >= MIN_WORDS_FOR_TEST
+  // 通常モードは4択の出題対象を4語以上要求するが、今日の復習は1語から開始できる。
+  const modeMinimum = mode === 'review' ? 1 : MIN_WORDS_FOR_TEST
+  const canStart = hasEnoughEligible && modeWords.length >= modeMinimum
   const currentModeLabel = QUIZ_MODES.find((m) => m.id === mode)?.label ?? ''
 
-  if (wordsLoading || sessionsLoading) return <LoadingState />
-  if (wordsError || sessionsError) return <DataErrorState />
+  if (wordsLoading || sessionsLoading || settingsLoading) return <LoadingState />
+  if (wordsError || sessionsError || settingsError) return <DataErrorState />
 
   function startTest() {
     const count = countOption === 'all' ? null : Number(countOption)
     const picked = pickQuestionWords(filteredWords, count, mode)
-    if (picked.length < MIN_WORDS_FOR_TEST) return
+    if (picked.length < modeMinimum) return
     setQuestions(buildQuestions(picked, eligibleWords))
     setCurrentIndex(0)
     setSelectedAnswer(null)
     setScore(0)
     setWrongWords([])
+    // テスト中に別タブで設定が変わっても、進行中の問題の条件を揃える。
+    setActiveReviewIntervals(reviewIntervals)
     setPhase('quiz')
   }
 
@@ -126,9 +152,17 @@ export default function TestPage() {
     } else {
       setWrongWords((prev) => [...prev, question.word])
     }
-    // 回答結果を即時に永続化（1問ごとに保存）
+    // 回答結果と復習間隔を同時に即時永続化（1問ごとに保存）
+    const reviewedAt = new Date()
+    const outcome = reviewOutcomeFromAnswer(answer, isCorrect)
     updateWords((prev) =>
-      prev.map((w) => (w.id === question.word.id ? applyAnswerResult(w, isCorrect) : w))
+      prev.map((w) => {
+        if (w.id !== question.word.id) return w
+        return {
+          ...applyAnswerResult(w, isCorrect),
+          srs: applyReviewOutcome(w.srs, outcome, reviewedAt, activeReviewIntervals),
+        }
+      })
     )
   }
 
@@ -143,10 +177,20 @@ export default function TestPage() {
     }
   }
 
-  // 「習得済みにする」: masteryLevel を最大値にして、そのまま次の問題へ進む
+  // 「習得済みにする」: 習熟度を最大値にし、設定された日数後へ進める
   function markMasteredAndNext() {
     const question = questions[currentIndex]
-    updateWords((prev) => prev.map((w) => (w.id === question.word.id ? markAsMastered(w) : w)))
+    const masteredAt = new Date()
+    updateWords((prev) =>
+      prev.map((w) =>
+        w.id === question.word.id
+          ? {
+              ...markAsMastered(w),
+              srs: markAsMasteredWithSrs(w.srs, masteredAt, activeReviewIntervals),
+            }
+          : w,
+      ),
+    )
     goNext()
   }
 
@@ -288,10 +332,9 @@ export default function TestPage() {
         {/* 全体は足りているが、選択モード・範囲フィルタでの出題対象が不足しているケース */}
         {hasEnoughEligible && !canStart && (
           <Alert severity="warning" sx={{ mb: 2 }}>
-            「{currentModeLabel}」
-            {isFilteringRange ? '・選択した出題範囲' : ''}の出題対象が{MIN_WORDS_FOR_TEST}
-            語未満です。{isFilteringRange ? '範囲を広げる、別のモードを選ぶ、' : '別のモードを選ぶか、'}
-            単語を追加してください。
+            {mode === 'review'
+              ? '今日の復習対象がありません。通常テストや未出題の語を学習できます。'
+              : `「${currentModeLabel}」${isFilteringRange ? '・選択した出題範囲' : ''}の出題対象が${MIN_WORDS_FOR_TEST}語未満です。${isFilteringRange ? '範囲を広げる、別のモードを選ぶ、' : '別のモードを選ぶか、'}単語を追加してください。`}
           </Alert>
         )}
 
