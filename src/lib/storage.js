@@ -71,8 +71,10 @@ export function normalizeWord(w) {
     correctCount: 0,
     incorrectCount: 0,
     lastTestedAt: null,
+    cefr: '',
     ...migrated,
     senses: Array.isArray(migrated.senses) ? migrated.senses : [],
+    categories: Array.isArray(migrated.categories) ? migrated.categories : [],
   }
 }
 
@@ -98,6 +100,8 @@ export function createWordEntry(fields) {
     correctCount: 0,
     incorrectCount: 0,
     lastTestedAt: null,
+    cefr: '',
+    categories: [],
     ...fields,
   }
 }

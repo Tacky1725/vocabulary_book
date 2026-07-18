@@ -9,6 +9,7 @@
 // エクスポートは自前形式（wordsToCsv）と DiQt形式（wordsToDiqtCsv）を別関数として用意し、
 // 既存の自前形式の完全な往復性は変えない。
 import { createSense, hasSenseContent } from './senses.js'
+import { isValidCefr, normalizeCategories } from './attributes.js'
 
 export const CSV_COLUMNS = [
   'word',
@@ -18,7 +19,13 @@ export const CSV_COLUMNS = [
   'partOfSpeech',
   'example',
   'exampleJa',
+  'cefr',
+  'categories',
 ]
+
+// 自前形式CSVの categories セル内でのタグ区切り文字。
+// ','はCSV自体の区切りと、' / 'はDiQt語義区切りと衝突するため避ける。
+const CATEGORY_CSV_SEPARATOR = ';'
 
 // DiQt配布CSVの列（順序は配布ファイルの実例に合わせてあるが、パース側は列名で対応付けるので順不同でよい）
 export const DIQT_COLUMNS = [
@@ -152,7 +159,13 @@ export function parseWordsCsv(text) {
       ? (() => {
           if (!raw.word) return null
           const sense = createSense(raw)
-          return { word: raw.word, phonetic: raw.phonetic || '', senses: hasSenseContent(sense) ? [sense] : [] }
+          return {
+            word: raw.word,
+            phonetic: raw.phonetic || '',
+            senses: hasSenseContent(sense) ? [sense] : [],
+            cefr: isValidCefr(raw.cefr) ? raw.cefr : '',
+            categories: raw.categories ? raw.categories.split(CATEGORY_CSV_SEPARATOR) : [],
+          }
         })()
       : parseDiqtRow(raw)
     if (!parsed || !parsed.word) continue
@@ -160,12 +173,16 @@ export function parseWordsCsv(text) {
     const key = parsed.word.toLowerCase()
     let entry = byKey.get(key)
     if (!entry) {
-      entry = { word: parsed.word, phonetic: '', senses: [] }
+      entry = { word: parsed.word, phonetic: '', senses: [], cefr: '', categories: [] }
       byKey.set(key, entry)
     }
     if (parsed.phonetic && !entry.phonetic) entry.phonetic = parsed.phonetic
+    // 属性は単語単位なので、語義展開された複数行のうち最初に非空だった値を採用する（phonetic と同じ「先勝ち」）
+    if (parsed.cefr && !entry.cefr) entry.cefr = parsed.cefr
+    if (parsed.categories?.length) entry.categories.push(...parsed.categories)
     entry.senses.push(...parsed.senses)
   }
+  for (const entry of byKey.values()) entry.categories = normalizeCategories(entry.categories)
   return { entries: [...byKey.values()], error: null }
 }
 
@@ -180,8 +197,11 @@ export function wordsToCsv(words) {
   const lines = [CSV_COLUMNS.join(',')]
   for (const w of words) {
     const senses = w.senses?.length ? w.senses : [createSense()]
+    // 属性は単語単位だが、1語義=1行に展開する都合上、往復時に「先勝ち」で拾われるよう各行に同じ値を書く
+    const cefr = w.cefr ?? ''
+    const categories = (w.categories ?? []).join(CATEGORY_CSV_SEPARATOR)
     for (const s of senses) {
-      const rowSource = { word: w.word, phonetic: w.phonetic, ...s }
+      const rowSource = { word: w.word, phonetic: w.phonetic, cefr, categories, ...s }
       lines.push(CSV_COLUMNS.map((col) => escapeCell(rowSource[col])).join(','))
     }
   }

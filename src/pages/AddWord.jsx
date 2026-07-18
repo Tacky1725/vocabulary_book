@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
@@ -12,6 +12,11 @@ import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Chip from '@mui/material/Chip'
 import Alert from '@mui/material/Alert'
+import Select from '@mui/material/Select'
+import MenuItem from '@mui/material/MenuItem'
+import InputLabel from '@mui/material/InputLabel'
+import FormControl from '@mui/material/FormControl'
+import Autocomplete from '@mui/material/Autocomplete'
 import SearchIcon from '@mui/icons-material/Search'
 import AddIcon from '@mui/icons-material/Add'
 import TranslateIcon from '@mui/icons-material/Translate'
@@ -21,6 +26,8 @@ import { createWordEntry } from '../lib/storage.js'
 import { createSense } from '../lib/senses.js'
 import { fetchDictionaryEntry, fetchJapaneseTranslation } from '../lib/api.js'
 import { parseWordsCsv } from '../lib/csv.js'
+import { CEFR_LEVELS, collectKnownCategories, normalizeCategories } from '../lib/attributes.js'
+import { lookupCefr, lookupCefrMany } from '../lib/cefr.js'
 
 export default function AddWord() {
   const { words, updateWords } = useWords()
@@ -67,12 +74,13 @@ const gridSx = {
 function SearchTab({ words, updateWords }) {
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
-  // form: null = プレビュー非表示 / { word, phonetic, senses: [語義行] }
+  // form: null = プレビュー非表示 / { word, phonetic, cefr, categories, senses: [語義行] }
   const [form, setForm] = useState(null)
   const [apiErrors, setApiErrors] = useState([])
   const [successMessage, setSuccessMessage] = useState('')
   // 重複が見つかったとき: { id, word } を保持して確認UIを出す
   const [duplicate, setDuplicate] = useState(null)
+  const knownCategories = useMemo(() => collectKnownCategories(words), [words])
 
   async function handleSearch(e) {
     e.preventDefault()
@@ -84,9 +92,11 @@ function SearchTab({ words, updateWords }) {
     setDuplicate(null)
     setApiErrors([])
 
-    const [dictResult, transResult] = await Promise.all([
+    // CEFR判定はバンドル済み静的データのローカル参照なのでAPI負荷はかからない
+    const [dictResult, transResult, cefr] = await Promise.all([
       fetchDictionaryEntry(q),
       fetchJapaneseTranslation(q),
+      lookupCefr(q),
     ])
 
     const errors = []
@@ -108,6 +118,8 @@ function SearchTab({ words, updateWords }) {
     setForm({
       word: dictResult.ok ? dictResult.data.word : q,
       phonetic: dictResult.ok ? dictResult.data.phonetic : '',
+      cefr,
+      categories: [],
       senses: senseRows,
     })
     setApiErrors(errors)
@@ -198,6 +210,8 @@ function SearchTab({ words, updateWords }) {
       createWordEntry({
         word: trimmedWord,
         phonetic: form.phonetic,
+        cefr: form.cefr,
+        categories: normalizeCategories(form.categories),
         senses: checkedSenses(),
       }),
     ])
@@ -205,7 +219,7 @@ function SearchTab({ words, updateWords }) {
   }
 
   // 重複時の上書き: 学習履歴（id/addedAt/masteryLevel/正誤数/lastTestedAt）は保持し
-  // word・phonetic・senses だけ差し替える
+  // word・phonetic・cefr・categories・senses だけ差し替える
   function handleOverwrite() {
     if (!form || !duplicate) return
     const trimmedWord = form.word.trim()
@@ -213,7 +227,14 @@ function SearchTab({ words, updateWords }) {
     updateWords((prev) =>
       prev.map((w) =>
         w.id === duplicate.id
-          ? { ...w, word: trimmedWord, phonetic: form.phonetic, senses }
+          ? {
+              ...w,
+              word: trimmedWord,
+              phonetic: form.phonetic,
+              cefr: form.cefr,
+              categories: normalizeCategories(form.categories),
+              senses,
+            }
           : w,
       ),
     )
@@ -282,6 +303,33 @@ function SearchTab({ words, updateWords }) {
               label="発音記号"
               value={form.phonetic}
               onChange={(e) => handleFieldChange('phonetic', e.target.value)}
+            />
+            <FormControl size="small">
+              <InputLabel id="cefr-select-label">CEFR</InputLabel>
+              <Select
+                labelId="cefr-select-label"
+                label="CEFR"
+                value={form.cefr}
+                onChange={(e) => handleFieldChange('cefr', e.target.value)}
+              >
+                <MenuItem value="">未設定</MenuItem>
+                {CEFR_LEVELS.map((level) => (
+                  <MenuItem key={level} value={level}>
+                    {level}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Autocomplete
+              multiple
+              freeSolo
+              size="small"
+              options={knownCategories}
+              value={form.categories}
+              onChange={(e, newValue) => handleFieldChange('categories', normalizeCategories(newValue))}
+              renderInput={(params) => (
+                <TextField {...params} label="カテゴリ" placeholder="タグを追加" />
+              )}
             />
           </Box>
 
@@ -489,17 +537,20 @@ function CsvTab({ words, updateWords }) {
     // CSV内部の重複は parseWordsCsv が1エントリにグループ化済みなので、
     // 既存単語帳との重複（大文字小文字無視）だけスキップする
     const existing = new Set(words.map((w) => w.word.trim().toLowerCase()))
-    const newEntries = []
-    let skipped = 0
-    for (const entry of entries) {
-      if (existing.has(entry.word.trim().toLowerCase())) {
-        skipped++
-        continue
-      }
-      newEntries.push(
-        createWordEntry({ word: entry.word, phonetic: entry.phonetic, senses: entry.senses }),
-      )
-    }
+    const toImport = entries.filter((entry) => !existing.has(entry.word.trim().toLowerCase()))
+    const skipped = entries.length - toImport.length
+
+    // CSV に cefr が明示されている行はそれを尊重し、空欄の行だけ自動判定で補う
+    const guessedCefr = await lookupCefrMany(toImport.map((entry) => entry.word))
+    const newEntries = toImport.map((entry, i) =>
+      createWordEntry({
+        word: entry.word,
+        phonetic: entry.phonetic,
+        cefr: entry.cefr || guessedCefr[i],
+        categories: entry.categories,
+        senses: entry.senses,
+      }),
+    )
 
     if (newEntries.length > 0) {
       updateWords((prev) => [...prev, ...newEntries])
@@ -538,6 +589,8 @@ bank,the land alongside a river,土手,/bæŋk/,noun,We walked along the bank.`}
         </Box>
         <Typography color="text.secondary">
           1行=1語義。同じ word の行は1つの単語にまとめて登録されます（上の例は「bank」1語に語義2件）。
+          任意で cefr（A1〜C2）・categories（タグを「;」区切りで複数指定）の列も追加できます。
+          cefr が空欄の行は登録時に自動判定を試みます（収録外の単語は未設定のままになります）。
         </Typography>
       </Box>
 

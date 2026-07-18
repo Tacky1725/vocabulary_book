@@ -11,6 +11,9 @@ import Tooltip from '@mui/material/Tooltip'
 import TextField from '@mui/material/TextField'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
+import InputLabel from '@mui/material/InputLabel'
+import FormControl from '@mui/material/FormControl'
+import Autocomplete from '@mui/material/Autocomplete'
 import Link from '@mui/material/Link'
 import Rating from '@mui/material/Rating'
 import Chip from '@mui/material/Chip'
@@ -31,9 +34,13 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import AddIcon from '@mui/icons-material/Add'
 import SaveIcon from '@mui/icons-material/Save'
 import CloseIcon from '@mui/icons-material/Close'
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
+import Alert from '@mui/material/Alert'
 import { useWords } from '../hooks/useWords.js'
 import { wordsToCsv, wordsToDiqtCsv, downloadCsv } from '../lib/csv.js'
 import { createSense, hasSenseContent } from '../lib/senses.js'
+import { CEFR_LEVELS, collectKnownCategories, normalizeCategories } from '../lib/attributes.js'
+import { lookupCefrMany } from '../lib/cefr.js'
 
 // 並び替えの選択肢
 const SORT_OPTIONS = [
@@ -117,6 +124,7 @@ function WordEditForm({
   setDraftSense,
   addDraftSense,
   removeDraftSense,
+  knownCategories,
 }) {
   return (
     <>
@@ -132,6 +140,34 @@ function WordEditForm({
           size="small"
           value={draft.phonetic}
           onChange={(e) => setDraft({ ...draft, phonetic: e.target.value })}
+        />
+        <FormControl size="small">
+          <InputLabel id="edit-cefr-select-label">CEFR</InputLabel>
+          <Select
+            labelId="edit-cefr-select-label"
+            label="CEFR"
+            value={draft.cefr}
+            onChange={(e) => setDraft({ ...draft, cefr: e.target.value })}
+          >
+            <MenuItem value="">未設定</MenuItem>
+            {CEFR_LEVELS.map((level) => (
+              <MenuItem key={level} value={level}>
+                {level}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <Autocomplete
+          multiple
+          freeSolo
+          size="small"
+          options={knownCategories}
+          value={draft.categories}
+          onChange={(e, newValue) => setDraft({ ...draft, categories: normalizeCategories(newValue) })}
+          renderInput={(params) => (
+            <TextField {...params} label="カテゴリ" placeholder="タグを追加" />
+          )}
+          sx={{ gridColumn: '1 / -1' }}
         />
       </Box>
       <Stack spacing={1.5} sx={{ mb: 1.5 }}>
@@ -233,14 +269,24 @@ function WordCard({ word, onEdit, onDelete }) {
       <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
         <Stack direction="row" spacing={1} sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <Box sx={{ minWidth: 0 }}>
-            <Typography fontWeight={600} sx={{ wordBreak: 'break-word' }}>
-              {word.word}
-            </Typography>
+            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}>
+              <Typography fontWeight={600} sx={{ wordBreak: 'break-word' }}>
+                {word.word}
+              </Typography>
+              {word.cefr && <Chip label={word.cefr} size="small" color="primary" variant="outlined" />}
+            </Stack>
             {/* phonetic は辞書API由来で既にスラッシュ付き（例: /rɪˈzɪliənt/） */}
             {word.phonetic && (
               <Typography variant="caption" color="text.secondary" display="block">
                 {word.phonetic}
               </Typography>
+            )}
+            {word.categories?.length > 0 && (
+              <Stack direction="row" gap={0.5} sx={{ flexWrap: 'wrap', mt: 0.5 }}>
+                {word.categories.map((tag) => (
+                  <Chip key={tag} label={tag} size="small" />
+                ))}
+              </Stack>
             )}
           </Box>
           <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
@@ -290,10 +336,15 @@ export default function WordList() {
   const [editingId, setEditingId] = useState(null)
   const [draft, setDraft] = useState(null)
   const [editError, setEditError] = useState('')
+  const [cefrFilter, setCefrFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState([])
+  const [bulkCefrRunning, setBulkCefrRunning] = useState(false)
+  const [bulkCefrResult, setBulkCefrResult] = useState(null)
+  const knownCategories = useMemo(() => collectKnownCategories(words), [words])
 
   const visibleWords = useMemo(() => {
     const q = deferredQuery.trim().toLowerCase()
-    const filtered = q
+    let filtered = q
       ? words.filter((w) => {
           const targets = [
             w.word,
@@ -303,6 +354,14 @@ export default function WordList() {
           return targets.some((v) => (v ?? '').toLowerCase().includes(q))
         })
       : words.slice()
+
+    if (cefrFilter) filtered = filtered.filter((w) => w.cefr === cefrFilter)
+    if (categoryFilter.length > 0) {
+      const wanted = categoryFilter.map((t) => t.toLowerCase())
+      filtered = filtered.filter((w) =>
+        (w.categories ?? []).some((tag) => wanted.includes(tag.toLowerCase())),
+      )
+    }
 
     const byAddedAt = (w) => new Date(w.addedAt ?? 0).getTime() || 0
     switch (sortKey) {
@@ -324,7 +383,7 @@ export default function WordList() {
         break
     }
     return filtered
-  }, [words, deferredQuery, sortKey])
+  }, [words, deferredQuery, sortKey, cefrFilter, categoryFilter])
 
   const totalPages = Math.max(1, Math.ceil(visibleWords.length / PAGE_SIZE))
   // 削除等でtotalPagesが縮んでも古いpage番号のまま空表示にならないよう、描画のたびにclampする
@@ -339,6 +398,8 @@ export default function WordList() {
     setDraft({
       word: word.word ?? '',
       phonetic: word.phonetic ?? '',
+      cefr: word.cefr ?? '',
+      categories: word.categories ?? [],
       // 語義が1つも無い場合も編集しやすいよう空の語義行を1つ出す
       senses: senses.length > 0 ? senses : [createSense()],
     })
@@ -384,7 +445,13 @@ export default function WordList() {
         }),
       )
       .filter(hasSenseContent)
-    const cleaned = { word: draft.word.trim(), phonetic: draft.phonetic.trim(), senses }
+    const cleaned = {
+      word: draft.word.trim(),
+      phonetic: draft.phonetic.trim(),
+      cefr: draft.cefr,
+      categories: normalizeCategories(draft.categories),
+      senses,
+    }
     updateWords((prev) => prev.map((w) => (w.id === editingId ? { ...w, ...cleaned } : w)))
     cancelEdit()
   }
@@ -403,7 +470,24 @@ export default function WordList() {
     downloadCsv(wordsToDiqtCsv(words), 'vocab-book-diqt.csv')
   }
 
-  const isFiltering = query.trim() !== ''
+  // CEFR未設定（#5以前に登録済み等）の単語だけをまとめて自動判定する。
+  // 手動設定済み（cefrが非空）の単語は上書きしない。
+  const handleBulkCefr = async () => {
+    const targets = words.filter((w) => !w.cefr)
+    if (targets.length === 0) {
+      setBulkCefrResult({ judged: 0, total: 0 })
+      return
+    }
+    setBulkCefrRunning(true)
+    setBulkCefrResult(null)
+    const guessed = await lookupCefrMany(targets.map((w) => w.word))
+    const cefrById = new Map(targets.map((w, i) => [w.id, guessed[i]]).filter(([, cefr]) => cefr))
+    updateWords((prev) => prev.map((w) => (cefrById.has(w.id) ? { ...w, cefr: cefrById.get(w.id) } : w)))
+    setBulkCefrRunning(false)
+    setBulkCefrResult({ judged: cefrById.size, total: targets.length })
+  }
+
+  const isFiltering = query.trim() !== '' || cefrFilter !== '' || categoryFilter.length > 0
 
   // 編集フォームに渡す共通 props（テーブル・カードで同じフォームを使う）
   const editFormProps = {
@@ -415,6 +499,7 @@ export default function WordList() {
     setDraftSense,
     addDraftSense,
     removeDraftSense,
+    knownCategories,
   }
 
   return (
@@ -449,8 +534,26 @@ export default function WordList() {
             >
               DiQt形式でエクスポート
             </Button>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<AutoAwesomeIcon />}
+              onClick={handleBulkCefr}
+              disabled={words.length === 0 || bulkCefrRunning}
+              sx={{ flex: { xs: 1, sm: 'initial' } }}
+            >
+              {bulkCefrRunning ? '判定中…' : 'CEFRを一括自動判定'}
+            </Button>
           </Stack>
         </Stack>
+
+        {bulkCefrResult && (
+          <Alert severity="info" sx={{ mb: 1.5 }} onClose={() => setBulkCefrResult(null)}>
+            {bulkCefrResult.total === 0
+              ? 'CEFR未設定の単語はありませんでした。'
+              : `CEFR未設定 ${bulkCefrResult.total}件中 ${bulkCefrResult.judged}件を判定しました（収録外の単語は未設定のままです）。`}
+          </Alert>
+        )}
 
         {words.length === 0 ? (
           <Typography color="text.secondary">
@@ -501,6 +604,38 @@ export default function WordList() {
                   </MenuItem>
                 ))}
               </Select>
+              <Select
+                value={cefrFilter}
+                size="small"
+                displayEmpty
+                onChange={(e) => {
+                  setCefrFilter(e.target.value)
+                  setPage(1)
+                }}
+                inputProps={{ 'aria-label': 'CEFRで絞り込み' }}
+                sx={{ minWidth: 120 }}
+              >
+                <MenuItem value="">CEFR: すべて</MenuItem>
+                {CEFR_LEVELS.map((level) => (
+                  <MenuItem key={level} value={level}>
+                    {level}
+                  </MenuItem>
+                ))}
+              </Select>
+              <Autocomplete
+                multiple
+                size="small"
+                options={knownCategories}
+                value={categoryFilter}
+                onChange={(e, newValue) => {
+                  setCategoryFilter(newValue)
+                  setPage(1)
+                }}
+                sx={{ minWidth: 200, flex: { sm: '1 1 220px' }, maxWidth: { sm: 320 } }}
+                renderInput={(params) => (
+                  <TextField {...params} label="カテゴリで絞り込み" />
+                )}
+              />
               <Typography
                 color="text.secondary"
                 sx={{ ml: { sm: 'auto' }, whiteSpace: 'nowrap' }}
@@ -554,7 +689,10 @@ export default function WordList() {
                       ) : (
                         <TableRow key={w.id} hover>
                           <TableCell>
-                            <Typography fontWeight={600}>{w.word}</Typography>
+                            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}>
+                              <Typography fontWeight={600}>{w.word}</Typography>
+                              {w.cefr && <Chip label={w.cefr} size="small" color="primary" variant="outlined" />}
+                            </Stack>
                             {/* phonetic は辞書API由来で既にスラッシュ付き（例: /rɪˈzɪliənt/） */}
                             {w.phonetic && (
                               <Typography variant="caption" color="text.secondary" display="block">
@@ -564,6 +702,13 @@ export default function WordList() {
                           </TableCell>
                           <TableCell>
                             <SenseLines senses={w.senses} />
+                            {w.categories?.length > 0 && (
+                              <Stack direction="row" gap={0.5} sx={{ flexWrap: 'wrap', mt: 0.5 }}>
+                                {w.categories.map((tag) => (
+                                  <Chip key={tag} label={tag} size="small" />
+                                ))}
+                              </Stack>
+                            )}
                           </TableCell>
                           <TableCell>
                             <MasteryStars level={w.masteryLevel} />
