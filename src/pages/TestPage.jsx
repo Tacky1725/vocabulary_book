@@ -32,10 +32,16 @@ import DoneAllIcon from '@mui/icons-material/DoneAll'
 import {
   QUIZ_MODES,
   MIN_WORDS_FOR_TEST,
+  QUESTION_TYPES,
+  QUESTION_FORMATS,
   pickQuestionWords,
   buildQuestions,
   applyAnswerResult,
   markAsMastered,
+  getChoiceText,
+  completeFillBlankAnswer,
+  getFillBlankInputValidation,
+  isQuestionAnswerCorrect,
 } from '../lib/quiz.js'
 import {
   DEFAULT_REVIEW_INTERVALS,
@@ -49,6 +55,8 @@ import { CEFR_LEVELS, collectKnownCategories } from '../lib/attributes.js'
 import { useWords } from '../hooks/useWords.js'
 import { useTestSessions } from '../hooks/useTestSessions.js'
 import { useSettings } from '../hooks/useSettings.js'
+import { useFillBlankQuestionCache } from '../hooks/useFillBlankQuestionCache.js'
+import { useAuth } from '../hooks/useAuth.jsx'
 import { DataErrorState, LoadingState } from '../components/LoadingState.jsx'
 import { formatDuration } from '../lib/stats.js'
 import { useQuestionTimer } from '../hooks/useQuestionTimer.js'
@@ -60,6 +68,7 @@ const COUNT_OPTIONS = [
 ]
 
 export default function TestPage() {
+  const { user } = useAuth()
   const { words, updateWords, isLoading: wordsLoading, error: wordsError } = useWords()
   const {
     recordTestSession,
@@ -80,6 +89,7 @@ export default function TestPage() {
     : 'random'
   const [phase, setPhase] = useState('setup')
   const [mode, setMode] = useState(defaultMode)
+  const [questionType, setQuestionType] = useState(QUESTION_TYPES.MEANING_CHOICE)
   const [countOption, setCountOption] = useState('10')
   // 出題範囲フィルタ: 出題モード（QUESTION_PICKERS）とは直交する絞り込み。空配列は「絞り込みなし」
   const [cefrFilter, setCefrFilter] = useState([])
@@ -88,7 +98,7 @@ export default function TestPage() {
   // 出題中の状態
   const [questions, setQuestions] = useState([])
   const [currentIndex, setCurrentIndex] = useState(0)
-  // 回答済みなら選んだ答え: 選択肢のindex（number）| 'none'（この中にはない）| 'unknown'（わからない）
+  // 回答済みなら選んだ答え: 選択肢index | 特殊回答 | { kind: 'typed', value }（穴埋め入力）
   const [selectedAnswer, setSelectedAnswer] = useState(null)
   const [score, setScore] = useState(0)
   const [wrongWords, setWrongWords] = useState([])
@@ -96,6 +106,10 @@ export default function TestPage() {
   const [totalElapsedMs, setTotalElapsedMs] = useState(0)
   const totalElapsedMsRef = useRef(0)
   const questionTimer = useQuestionTimer()
+  const {
+    questionsByWordId: fillBlankQuestionsByWordId,
+    isGenerating: isFillBlankGenerating,
+  } = useFillBlankQuestionCache(words, user?.uid, wordsLoading)
 
   // 問題が表示された時点で開始する。回答後はhandleAnswerが停止するため、
   // 正誤フィードバックから「次へ」までの待ち時間は計測されない。
@@ -104,8 +118,20 @@ export default function TestPage() {
     questionTimer.start()
   }, [phase, currentIndex, questionTimer.start])
 
-  // 出題対象: 日本語訳がある単語のみ（正解選択肢が作れないため）
-  const eligibleWords = useMemo(() => words.filter(hasMeaningJa), [words])
+  // 出題対象は問題形式ごとに判定する。日本語→英語では英単語も必須。
+  const eligibleWords = useMemo(
+    () =>
+      questionType === QUESTION_TYPES.FILL_BLANK
+        ? words.filter((word) => fillBlankQuestionsByWordId.has(word.id))
+        : words.filter((word) => {
+            if (!hasMeaningJa(word)) return false
+            if (questionType === QUESTION_TYPES.MEANING_TO_WORD) {
+              return String(word.word ?? '').trim() !== ''
+            }
+            return true
+          }),
+    [words, questionType, fillBlankQuestionsByWordId],
+  )
   const knownCategories = useMemo(() => collectKnownCategories(words), [words])
   const reviewIntervals = useMemo(
     () => normalizeReviewIntervals(settings.reviewIntervals),
@@ -131,11 +157,31 @@ export default function TestPage() {
     () => pickQuestionWords(filteredWords, null, mode),
     [filteredWords, mode]
   )
-  const hasEnoughEligible = eligibleWords.length >= MIN_WORDS_FOR_TEST
-  // 通常モードは4択の出題対象を4語以上要求するが、今日の復習は1語から開始できる。
-  const modeMinimum = mode === 'review' ? 1 : MIN_WORDS_FOR_TEST
-  const canStart = hasEnoughEligible && modeWords.length >= modeMinimum
+  const requiredEligibleCount =
+    questionType === QUESTION_TYPES.FILL_BLANK ? 1 : MIN_WORDS_FOR_TEST
+  const hasEnoughEligible = eligibleWords.length >= requiredEligibleCount
+  const hasEnoughDistinctAnswers =
+    questionType !== QUESTION_TYPES.MEANING_TO_WORD ||
+    new Set(eligibleWords.map((word) => String(word.word ?? '').trim().toLowerCase())).size >=
+      MIN_WORDS_FOR_TEST
+  // 穴埋めはダミー選択肢を必要としないため、どのモードでも1語から開始できる。
+  // 選択式は通常4語、今日の復習だけ1語から開始できる既存仕様を維持する。
+  const modeMinimum =
+    questionType === QUESTION_TYPES.FILL_BLANK || mode === 'review' ? 1 : MIN_WORDS_FOR_TEST
+  const canStart =
+    hasEnoughEligible &&
+    hasEnoughDistinctAnswers &&
+    modeWords.length >= modeMinimum &&
+    (questionType !== QUESTION_TYPES.FILL_BLANK || !isFillBlankGenerating)
   const currentModeLabel = QUIZ_MODES.find((m) => m.id === mode)?.label ?? ''
+  const currentQuestionFormatLabel =
+    QUESTION_FORMATS.find((format) => format.type === questionType)?.label ?? ''
+  const eligibilityLabel =
+    questionType === QUESTION_TYPES.MEANING_TO_WORD
+      ? '日本語訳と英単語のある単語'
+      : questionType === QUESTION_TYPES.FILL_BLANK
+        ? '例文内に見出し語または活用形がある単語'
+        : '日本語訳のある単語'
 
   if (wordsLoading || sessionsLoading || settingsLoading) return <LoadingState />
   if (wordsError || sessionsError || settingsError) return <DataErrorState />
@@ -144,7 +190,12 @@ export default function TestPage() {
     const count = countOption === 'all' ? null : Number(countOption)
     const picked = pickQuestionWords(filteredWords, count, mode)
     if (picked.length < modeMinimum) return
-    setQuestions(buildQuestions(picked, eligibleWords))
+    const builtQuestions = buildQuestions(picked, eligibleWords, {
+      type: questionType,
+      ...(questionType === QUESTION_TYPES.FILL_BLANK ? { fillBlankQuestionsByWordId } : {}),
+    })
+    if (builtQuestions.length < modeMinimum) return
+    setQuestions(builtQuestions)
     setCurrentIndex(0)
     setSelectedAnswer(null)
     setScore(0)
@@ -160,7 +211,7 @@ export default function TestPage() {
   function handleAnswer(answer) {
     if (selectedAnswer !== null) return // 回答済みなら無視
     const question = questions[currentIndex]
-    const isCorrect = isAnswerCorrect(question, answer)
+    const isCorrect = isQuestionAnswerCorrect(question, answer)
     setSelectedAnswer(answer)
     if (isCorrect) {
       setScore((prev) => prev + 1)
@@ -171,18 +222,21 @@ export default function TestPage() {
     const elapsedMs = questionTimer.stop()
     totalElapsedMsRef.current += elapsedMs
     setTotalElapsedMs(totalElapsedMsRef.current)
-    // 回答結果と復習間隔を同時に即時永続化（1問ごとに保存）
+    // 正誤フィードバックを先に描画する。単語一覧全体の更新・Firestore同期は
+    // 次のタスクへ回し、Enter押下後の画面更新を待たせない。
     const reviewedAt = new Date()
     const outcome = reviewOutcomeFromAnswer(answer, isCorrect)
-    updateWords((prev) =>
-      prev.map((w) => {
-        if (w.id !== question.word.id) return w
-        return {
-          ...applyAnswerResult(w, isCorrect),
-          srs: applyReviewOutcome(w.srs, outcome, reviewedAt, activeReviewIntervals),
-        }
-      })
-    )
+    setTimeout(() => {
+      updateWords((prev) =>
+        prev.map((w) => {
+          if (w.id !== question.word.id) return w
+          return {
+            ...applyAnswerResult(w, isCorrect),
+            srs: applyReviewOutcome(w.srs, outcome, reviewedAt, activeReviewIntervals),
+          }
+        })
+      )
+    }, 0)
   }
 
   function goNext() {
@@ -271,6 +325,23 @@ export default function TestPage() {
         </Typography>
 
         <FormControl fullWidth sx={{ mb: 2 }}>
+          <InputLabel id="question-type-label">出題形式</InputLabel>
+          <Select
+            labelId="question-type-label"
+            label="出題形式"
+            value={questionType}
+            onChange={(e) => setQuestionType(e.target.value)}
+          >
+            {QUESTION_FORMATS.map((format) => (
+              <MenuItem key={format.type} value={format.type} disabled={!format.available}>
+                {format.label}
+                {format.available ? '' : '（準備中）'}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        <FormControl fullWidth sx={{ mb: 2 }}>
           <InputLabel id="quiz-mode-label">出題モード</InputLabel>
           <Select
             labelId="quiz-mode-label"
@@ -345,25 +416,39 @@ export default function TestPage() {
         />
 
         <Typography color="text.secondary" sx={{ mb: 2 }}>
-          出題対象: {modeWords.length} 語（{currentModeLabel}）
+          出題対象: {modeWords.length} 語（{currentModeLabel}・{currentQuestionFormatLabel}）
         </Typography>
 
-        {!hasEnoughEligible && (
+        {!hasEnoughEligible && !isFillBlankGenerating && (
           <Alert severity="error" sx={{ mb: 2 }}>
-            テストを開始するには日本語訳のある単語が{MIN_WORDS_FOR_TEST}語以上必要です。
+            テストを開始するには{eligibilityLabel}が
+            {requiredEligibleCount}語以上必要です。
             <Link component={RouterLink} to="/add" sx={{ ml: 0.5 }}>
               単語を追加する
             </Link>
           </Alert>
         )}
 
+        {hasEnoughEligible && !hasEnoughDistinctAnswers && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            日本語→英語問題には、異なる英単語が{MIN_WORDS_FOR_TEST}語以上必要です。
+            英単語の重複を確認するか、別の出題形式を選んでください。
+          </Alert>
+        )}
+
         {/* 全体は足りているが、選択モード・範囲フィルタでの出題対象が不足しているケース */}
-        {hasEnoughEligible && !canStart && (
+        {hasEnoughEligible && hasEnoughDistinctAnswers && !canStart && !isFillBlankGenerating && (
           <Alert severity="warning" sx={{ mb: 2 }}>
             {mode === 'review'
               ? '今日の復習対象がありません。通常テストや未出題の語を学習できます。'
-              : `「${currentModeLabel}」${isFilteringRange ? '・選択した出題範囲' : ''}の出題対象が${MIN_WORDS_FOR_TEST}語未満です。${isFilteringRange ? '範囲を広げる、別のモードを選ぶ、' : '別のモードを選ぶか、'}単語を追加してください。`}
+              : `「${currentModeLabel}」${isFilteringRange ? '・選択した出題範囲' : ''}の出題対象が${modeMinimum}語未満です。${isFilteringRange ? '範囲を広げる、別のモードを選ぶ、' : '別のモードを選ぶか、'}単語を追加してください。`}
           </Alert>
+        )}
+
+        {questionType === QUESTION_TYPES.FILL_BLANK && isFillBlankGenerating && (
+          <Typography color="text.secondary" sx={{ mb: 1 }}>
+            テスト問題データ生成中...
+          </Typography>
         )}
 
         <Button
@@ -378,14 +463,6 @@ export default function TestPage() {
       </CardContent>
     </Card>
   )
-}
-
-// 回答（選択肢のindex | 'none' | 'unknown'）の正誤を判定する。
-// 「この中にはない」は正解なし問題でのみ正解、「わからない」は常に不正解。
-function isAnswerCorrect(question, answer) {
-  if (answer === 'none') return question.noneIsCorrect
-  if (answer === 'unknown') return false
-  return question.choices[answer].isCorrect
 }
 
 // 回答済みの回答ボタンの見た目（正解=緑・選んだ不正解=赤・その他=薄く）。
@@ -420,6 +497,87 @@ function answerSx(answered, isCorrectAnswer, isSelected) {
   return { ...base, '&.Mui-disabled': { opacity: 0.55 } }
 }
 
+function FillBlankAnswer({ answered }) {
+  if (answered) return null
+
+  return (
+    <Stack spacing={1.25} sx={{ mb: 2, alignItems: 'center' }}>
+      <Typography variant="body2" color="text.secondary">
+        キーボードで入力してください（Enterで回答、Backspaceで1文字削除）
+      </Typography>
+    </Stack>
+  )
+}
+
+function PartialBlank({ surface, validation }) {
+  let characterIndex = 0
+  const segments = String(surface)
+    .trim()
+    .split(/(\s+)/)
+    .map((part, partIndex) => {
+      if (/^\s+$/.test(part)) return part
+      const characters = part.match(/[A-Za-z0-9]/g) ?? []
+      const nodes = characters.map((character, index) => {
+        if (index === 0) {
+          return (
+            <Box component="span" key={`${partIndex}-${index}`}>
+              {character}
+            </Box>
+          )
+        }
+        const typedCharacter = validation.typedCharacters[characterIndex]
+        characterIndex += 1
+        return (
+          <Box
+            component="span"
+            key={`${partIndex}-${index}`}
+            sx={
+              typedCharacter && validation.isTooLong
+                ? { color: 'error.main', fontWeight: 700 }
+                : undefined
+            }
+          >
+            {typedCharacter ?? '_'}
+          </Box>
+        )
+      })
+      return <Box component="span" key={`part-${partIndex}`}>{nodes}</Box>
+    })
+
+  // 文字数超過分は穴の末尾に追記する。先頭文字は常に問題文側の表示を残す。
+  const overflowCharacters = validation.typedCharacters.slice(validation.expectedLength)
+  return (
+    <>
+      {segments}
+      {overflowCharacters.map((character, index) => (
+        <Box component="span" key={`overflow-${index}`} sx={{ color: 'error.main', fontWeight: 700 }}>
+          {character}
+        </Box>
+      ))}
+    </>
+  )
+}
+
+function FillBlankPrompt({ question, validation }) {
+  const blanks = question.blanks ?? []
+  if (blanks.length === 0) return question.prompt
+  const nodes = []
+  let cursor = 0
+  blanks.forEach((blank, index) => {
+    nodes.push(question.example.slice(cursor, blank.start))
+    nodes.push(
+      <PartialBlank
+        key={`blank-${index}`}
+        surface={blank.surface}
+        validation={validation}
+      />,
+    )
+    cursor = blank.end
+  })
+  nodes.push(question.example.slice(cursor))
+  return nodes
+}
+
 function QuizScreen({
   question,
   currentIndex,
@@ -431,15 +589,93 @@ function QuizScreen({
   onNext,
   onMastered,
 }) {
+  const [typedValue, setTypedValue] = useState('')
+  const isComposingRef = useRef(false)
+  const didAdvanceOnEnterRef = useRef(false)
   const answered = selectedAnswer !== null
-  const isCorrect = answered && isAnswerCorrect(question, selectedAnswer)
-  const correctChoice = question.choices.find((c) => c.isCorrect)
+  const isCorrect = answered && isQuestionAnswerCorrect(question, selectedAnswer)
+  const isFillBlank = question.type === QUESTION_TYPES.FILL_BLANK
+  const fillBlankValidation = isFillBlank
+    ? getFillBlankInputValidation(typedValue, question.answer)
+    : null
+  const fillBlankCanSubmit =
+    !fillBlankValidation ||
+    (!fillBlankValidation.isTooLong &&
+      fillBlankValidation.typedCharacters.length === fillBlankValidation.expectedLength)
+  const correctChoice = question.choices?.find((c) => c.isCorrect)
+  const showNoneChoice =
+    !question.type || question.type === QUESTION_TYPES.MEANING_CHOICE
   const isLast = currentIndex + 1 === total
   const { word } = question
   // フィードバックに出す語義: 日本語訳のあるものだけ（多すぎる場合は8件まで）
   const feedbackSenses = (word.senses ?? [])
     .filter((s) => s.meaningJa && s.meaningJa.trim() !== '')
     .slice(0, 8)
+  const fillBlankMeaning =
+    word.senses?.[question.match?.senseIndex]?.meaningJa?.trim() || joinedMeaningJa(word)
+
+  useEffect(() => {
+    setTypedValue('')
+    isComposingRef.current = false
+    didAdvanceOnEnterRef.current = false
+  }, [question])
+
+  // 回答後は、問題形式にかかわらず Enter で「次へ」（最終問では「結果を見る」）へ進む。
+  useEffect(() => {
+    if (!answered) return undefined
+
+    const handleKeyDown = (event) => {
+      if (event.key !== 'Enter' || event.isComposing || didAdvanceOnEnterRef.current) return
+      event.preventDefault()
+      didAdvanceOnEnterRef.current = true
+      onNext()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [answered, onNext])
+
+  useEffect(() => {
+    if (!isFillBlank || answered) return undefined
+
+    const handleCompositionStart = () => {
+      isComposingRef.current = true
+    }
+    const handleCompositionEnd = () => {
+      isComposingRef.current = false
+    }
+    const handleKeyDown = (event) => {
+      if (event.nativeEvent?.isComposing || event.isComposing || isComposingRef.current) return
+      if (event.key === 'Backspace') {
+        event.preventDefault()
+        setTypedValue((value) => value.slice(0, -1))
+        return
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        if (fillBlankCanSubmit) onAnswer({ kind: 'typed', value: typedValue })
+        return
+      }
+      if (
+        event.key.length === 1 &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        event.preventDefault()
+        setTypedValue((value) => value + event.key)
+      }
+    }
+
+    window.addEventListener('compositionstart', handleCompositionStart)
+    window.addEventListener('compositionend', handleCompositionEnd)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('compositionstart', handleCompositionStart)
+      window.removeEventListener('compositionend', handleCompositionEnd)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [answered, fillBlankCanSubmit, isFillBlank, onAnswer, typedValue])
 
   return (
     <Card>
@@ -449,71 +685,117 @@ function QuizScreen({
             <Chip label={`${currentIndex + 1} / ${total}`} size="small" />
             <Typography color="text.secondary">経過時間 {formatDuration(elapsedMs)}</Typography>
           </Stack>
-          <Typography color="text.secondary">スコア: {score}</Typography>
+          <Typography color="text.secondary">正解数: {score}</Typography>
         </Stack>
 
         <Box sx={{ textAlign: 'center', my: 2.5 }}>
-          <Typography variant="h4" fontWeight={700}>
-            {word.word}
+          {isFillBlank && (
+            <Typography variant="subtitle1" color="text.secondary" sx={{ mb: 0.75 }}>
+              意味: {fillBlankMeaning || '（日本語訳未登録）'}
+            </Typography>
+          )}
+          <Typography
+            variant="h4"
+            fontWeight={700}
+            sx={
+              question.type === QUESTION_TYPES.MEANING_TO_WORD || isFillBlank
+                ? { fontSize: '1.0625rem', lineHeight: 1.7 }
+                : undefined
+            }
+          >
+            {isFillBlank ? (
+              <FillBlankPrompt
+                question={question}
+                validation={fillBlankValidation}
+              />
+            ) : (
+              question.prompt ?? word.word
+            )}
           </Typography>
-          {word.phonetic && (
+          {isFillBlank && fillBlankValidation.isTooLong && (
+            <Typography color="error.main" fontWeight={700} sx={{ mt: 0.75 }}>
+              文字数は{fillBlankValidation.expectedLength}文字です
+            </Typography>
+          )}
+          {word.phonetic && !isFillBlank && question.type !== QUESTION_TYPES.MEANING_TO_WORD && (
             <Typography color="text.secondary" sx={{ mt: 0.5 }}>
               {word.phonetic}
             </Typography>
           )}
         </Box>
 
-        <Box
-          sx={{
-            display: 'grid',
-            // スマホは1列固定でタップしやすく、PC以上は2列に折り返す
-            gridTemplateColumns: { xs: '1fr', sm: 'repeat(auto-fit, minmax(220px, 1fr))' },
-            gap: 1.25,
-            mb: 2,
-          }}
-        >
-          {question.choices.map((choice, i) => (
+        {isFillBlank ? (
+          <FillBlankAnswer
+            answered={answered}
+          />
+        ) : (
+          <Box
+            sx={{
+              display: 'grid',
+              // スマホは1列固定でタップしやすく、PC以上は2列に折り返す
+              gridTemplateColumns: { xs: '1fr', sm: 'repeat(auto-fit, minmax(220px, 1fr))' },
+              gap: 1.25,
+              mb: 2,
+            }}
+          >
+            {question.choices.map((choice, i) => (
+              <Button
+                key={i}
+                variant="outlined"
+                onClick={() => onAnswer(i)}
+                disabled={answered}
+                sx={{
+                  ...answerSx(answered, choice.isCorrect, i === selectedAnswer),
+                  textTransform: 'none',
+                }}
+                endIcon={
+                  answered && choice.isCorrect ? (
+                    <CheckCircleIcon color="success" />
+                  ) : answered && i === selectedAnswer ? (
+                    <CancelIcon color="error" />
+                  ) : null
+                }
+              >
+                {getChoiceText(choice)}
+              </Button>
+            ))}
+          </Box>
+        )}
+
+        {/* 特殊回答: 「この中にはない」は英語→日本語問題だけで表示する */}
+        <Stack direction="row" spacing={1.25} sx={{ mb: 2 }}>
+          {isFillBlank && (
             <Button
-              key={i}
+              fullWidth
+              variant="contained"
+              onClick={() => onAnswer({ kind: 'typed', value: typedValue })}
+              disabled={answered || !fillBlankCanSubmit}
+            >
+              回答する
+            </Button>
+          )}
+          {showNoneChoice && (
+            <Button
+              fullWidth
               variant="outlined"
-              onClick={() => onAnswer(i)}
+              onClick={() => onAnswer('none')}
               disabled={answered}
-              sx={answerSx(answered, choice.isCorrect, i === selectedAnswer)}
+              sx={{
+                ...answerSx(answered, question.noneIsCorrect, selectedAnswer === 'none'),
+                justifyContent: 'center',
+                textAlign: 'center',
+              }}
               endIcon={
-                answered && choice.isCorrect ? (
+                answered && question.noneIsCorrect ? (
                   <CheckCircleIcon color="success" />
-                ) : answered && i === selectedAnswer ? (
+                ) : answered && selectedAnswer === 'none' ? (
                   <CancelIcon color="error" />
                 ) : null
               }
             >
-              {choice.meaningJa}
+              この中にはない
             </Button>
-          ))}
-        </Box>
-
-        {/* 特殊回答: 「この中にはない」は正解なし問題でのみ正解、「わからない」は常に不正解 */}
-        <Stack direction="row" spacing={1.25} sx={{ mb: 2 }}>
-          <Button
-            fullWidth
-            variant="outlined"
-            onClick={() => onAnswer('none')}
-            disabled={answered}
-            sx={{
-              ...answerSx(answered, question.noneIsCorrect, selectedAnswer === 'none'),
-              justifyContent: 'center',
-              textAlign: 'center',
-            }}
-            endIcon={
-              answered && question.noneIsCorrect ? (
-                <CheckCircleIcon color="success" />
-              ) : answered && selectedAnswer === 'none' ? (
-                <CancelIcon color="error" />
-              ) : null
-            }
-          >
-            この中にはない
-          </Button>
+          )}
           <Button
             fullWidth
             variant="outlined"
@@ -549,15 +831,63 @@ function QuizScreen({
                   </Typography>
                 </>
               ) : (
-                <>
-                  <CancelIcon color="error" fontSize="small" />
-                  <Typography color="error.main" fontWeight={700}>
-                    不正解…正解は「
-                    {question.noneIsCorrect ? 'この中にはない' : correctChoice?.meaningJa}」
-                  </Typography>
-                </>
+                isFillBlank ? (
+                  <Stack spacing={0.25}>
+                    <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+                      <CancelIcon color="error" fontSize="small" />
+                      <Typography color="error.main" fontWeight={700}>
+                        不正解…
+                      </Typography>
+                    </Stack>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: 'auto 1fr',
+                        columnGap: 0.5,
+                        pl: 3,
+                      }}
+                    >
+                      <Typography color="error.main" fontWeight={700} sx={{ textAlign: 'right' }}>
+                        正解：
+                      </Typography>
+                      <Typography color="error.main" fontWeight={700}>
+                        {question.answer}
+                      </Typography>
+                      <Typography color="error.main" fontWeight={700} sx={{ textAlign: 'right' }}>
+                        入力した答え：
+                      </Typography>
+                      <Typography color="error.main" fontWeight={700}>
+                        {selectedAnswer?.kind === 'typed'
+                          ? completeFillBlankAnswer(selectedAnswer.value, question.answer)
+                          : '未回答'}
+                      </Typography>
+                    </Box>
+                  </Stack>
+                ) : (
+                  <>
+                    <CancelIcon color="error" fontSize="small" />
+                    <Typography color="error.main" fontWeight={700}>
+                      不正解…正解は「
+                      {question.noneIsCorrect ? 'この中にはない' : getChoiceText(correctChoice)}」
+                    </Typography>
+                  </>
+                )
               )}
             </Stack>
+
+            {question.type === QUESTION_TYPES.MEANING_TO_WORD && (
+              <Stack spacing={0.25} sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" color="text.secondary">
+                  正解の英単語:
+                </Typography>
+                <Typography variant="h6" fontWeight={700}>
+                  {word.word}
+                </Typography>
+                {word.phonetic && (
+                  <Typography color="text.secondary">発音: {word.phonetic}</Typography>
+                )}
+              </Stack>
+            )}
 
             {feedbackSenses.length > 0 && (
               <Stack spacing={1} sx={{ mb: 2 }}>
@@ -593,8 +923,13 @@ function QuizScreen({
             )}
 
             <Stack direction="row" spacing={1.25} useFlexGap sx={{ flexWrap: 'wrap' }}>
-              <Button variant="contained" endIcon={<ArrowForwardIcon />} onClick={onNext}>
-                {isLast ? '結果を見る' : '次へ'}
+              <Button
+                variant="contained"
+                endIcon={<ArrowForwardIcon />}
+                onClick={onNext}
+                sx={{ textTransform: 'none' }}
+              >
+                {isLast ? '結果を見る (Enter)' : '次へ (Enter)'}
               </Button>
               <Button
                 variant="outlined"

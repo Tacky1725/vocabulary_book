@@ -140,7 +140,7 @@ export function markAsMasteredWithSrs(
 }
 
 export function reviewOutcomeFromAnswer(answer, isCorrect) {
-  if (answer === 'unknown') return 'unknown'
+  if (answer === 'unknown' || answer?.kind === 'unknown') return 'unknown'
   return isCorrect ? 'correct' : 'incorrect'
 }
 
