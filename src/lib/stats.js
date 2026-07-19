@@ -9,6 +9,18 @@ export function toLocalDateKey(isoString) {
   return `${y}-${m}-${day}`
 }
 
+// 経過時間を画面表示用に整形する。1時間未満は MM:SS、1時間以上は H:MM:SS。
+export function formatDuration(milliseconds) {
+  const ms = Math.max(0, Number(milliseconds) || 0)
+  const totalSeconds = Math.floor(ms / 1000)
+  const seconds = totalSeconds % 60
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  const minutes = totalMinutes % 60
+  const hours = Math.floor(totalMinutes / 60)
+  const pad = (value) => String(value).padStart(2, '0')
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`
+}
+
 // 連続学習日数。今日または昨日を最終日とする連続日数を返す
 // （今日まだテストしていなくても、昨日までの連続は途切れていない扱い）。
 export function calcStreak(sessions, now = new Date()) {
