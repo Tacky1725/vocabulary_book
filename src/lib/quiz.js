@@ -1,6 +1,7 @@
 // 出題ロジック。出題モードごとの単語選択を関数として分離してあり、
 // 新しいモードは QUESTION_PICKERS にエントリを追加するだけで拡張できる。
 import { joinedMeaningJa, hasMeaningJa } from './senses.js'
+import { compareDueWords, isDue } from './srs.js'
 
 export const MIN_WORDS_FOR_TEST = 4
 
@@ -10,6 +11,7 @@ export const QUIZ_MODES = [
   { id: 'recent', label: '直近に追加した語', available: true },
   { id: 'unlearned', label: '未出題の語（まだ出題していない語）', available: true },
   { id: 'weak', label: 'ニガテ克服（正答率が低い語を優先）', available: true },
+  { id: 'review', label: '今日の復習（復習期限が来た語）', available: true },
 ]
 
 function shuffle(array) {
@@ -54,8 +56,10 @@ const QUESTION_PICKERS = {
       .sort((a, b) => String(a.addedAt ?? '').localeCompare(String(b.addedAt ?? '')))
       .slice(0, count),
   // ニガテ優先: 正答率の低い順（byWeakness）。未出題は accuracy=Infinity で最後尾。
-  // 未出題を優先的に出したいニーズは unlearned モード（および #3 SRS: 新規語は常に due）でカバーする。
+  // 未出題を優先的に出したいニーズは unlearned モードでカバーする。
   weak: (words, count) => [...words].sort(byWeakness).slice(0, count),
+  // 今日の復習: 期限到来語だけを期限の早い順に出す。未学習語は未出題モードで扱う。
+  review: (words, count) => [...words].filter((w) => isDue(w)).sort(compareDueWords).slice(0, count),
 }
 
 // 出題対象の単語リストを選ぶ。count が null/undefined なら全問。

@@ -1,7 +1,7 @@
 // Firestore へのデータアクセス層（React 非依存）。
 // データはすべて users/{uid} 配下に置き、セキュリティルールで所有者以外を遮断する。
 //   users/{uid}/words/{wordId}     … 単語エントリ（1単語 = 1ドキュメント。競合解決は単語単位の後勝ち）
-//   users/{uid}/meta/testSessions  … テスト実施履歴（{ sessions: [{date,total,correct}] } の1ドキュメント）
+//   users/{uid}/meta/testSessions  … テスト実施履歴（{ sessions: [{date,total,correct,durationMs?}] } の1ドキュメント）
 // 書き込み系は api.js と同じく throw せず { ok, error? } を返す契約。
 
 import {
@@ -92,11 +92,15 @@ export function subscribeTestSessions(uid, onChange, onError) {
   )
 }
 
-export async function recordTestSession(uid, { total, correct }) {
+export async function recordTestSession(uid, { total, correct, durationMs }) {
   try {
+    const session = { date: new Date().toISOString(), total, correct }
+    if (Number.isFinite(durationMs) && durationMs >= 0) {
+      session.durationMs = Math.round(durationMs)
+    }
     await setDoc(
       sessionsDoc(uid),
-      { sessions: arrayUnion({ date: new Date().toISOString(), total, correct }) },
+      { sessions: arrayUnion(session) },
       { merge: true }
     )
     return { ok: true }

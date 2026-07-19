@@ -18,6 +18,7 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogActions from '@mui/material/DialogActions'
 import FormControl from '@mui/material/FormControl'
 import FormControlLabel from '@mui/material/FormControlLabel'
+import TextField from '@mui/material/TextField'
 import InputLabel from '@mui/material/InputLabel'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
@@ -30,6 +31,7 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 import SettingsIcon from '@mui/icons-material/Settings'
 import AddIcon from '@mui/icons-material/Add'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import ReplayIcon from '@mui/icons-material/Replay'
 import { useWords } from '../hooks/useWords.js'
 import { useTestSessions } from '../hooks/useTestSessions.js'
 import { useSettings } from '../hooks/useSettings.js'
@@ -42,6 +44,13 @@ import {
   buildActivityCalendar,
   toLocalDateKey,
 } from '../lib/stats.js'
+import {
+  DEFAULT_REVIEW_INTERVALS,
+  MAX_REVIEW_INTERVAL_DAYS,
+  isDue,
+  normalizeReviewIntervals,
+  validateReviewIntervals,
+} from '../lib/srs.js'
 
 const RECENT_SESSION_COUNT = 5
 
@@ -84,9 +93,19 @@ export default function Dashboard() {
   const distribution = useMemo(() => calcMasteryDistribution(words), [words])
   const calendar = useMemo(() => buildActivityCalendar(sessions), [sessions])
   const todayProgress = useMemo(() => calcTodayProgress(words, sessions), [words, sessions])
+  const reviewCount = useMemo(() => words.filter((word) => isDue(word)).length, [words])
+  const unlearnedCount = useMemo(
+    () => words.filter((word) => !word.srs?.dueAt).length,
+    [words],
+  )
+  const reviewIntervals = useMemo(
+    () => normalizeReviewIntervals(settings.reviewIntervals),
+    [settings.reviewIntervals],
+  )
 
   const dailyGoal = settings.dailyGoal ?? DEFAULT_DAILY_GOAL
   const [goalDialogOpen, setGoalDialogOpen] = useState(false)
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false)
 
   // 直近のセッションを新しい順に数件
   const recentSessions = useMemo(
@@ -149,6 +168,12 @@ export default function Dashboard() {
         goal={dailyGoal}
         progress={todayProgress}
         onEdit={() => setGoalDialogOpen(true)}
+      />
+
+      <ReviewQueueCard
+        reviewCount={reviewCount}
+        unlearnedCount={unlearnedCount}
+        onSettings={() => setReviewDialogOpen(true)}
       />
 
       {/* 習熟度の分布 */}
@@ -263,7 +288,140 @@ export default function Dashboard() {
           setGoalDialogOpen(false)
         }}
       />
+
+      <ReviewIntervalSettingsDialog
+        open={reviewDialogOpen}
+        initial={reviewIntervals}
+        onClose={() => setReviewDialogOpen(false)}
+        onSave={(next) => {
+          updateSettings({ reviewIntervals: next })
+          setReviewDialogOpen(false)
+        }}
+      />
     </Stack>
+  )
+}
+
+// 復習間隔の自動調整に基づく今日の復習導線。専門用語は表示せず、行動に直結する文言にする。
+function ReviewQueueCard({ reviewCount, unlearnedCount, onSettings }) {
+  return (
+    <Card>
+      <CardContent>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1.5}
+          sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between' }}
+        >
+          <Box>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}>
+              <ReplayIcon color="primary" fontSize="small" />
+              <Typography variant="h6" component="h3">
+                今日の復習
+              </Typography>
+            </Stack>
+            {reviewCount > 0 ? (
+              <Typography color="text.secondary">
+                忘れそうな単語が {reviewCount} 語あります。
+              </Typography>
+            ) : (
+              <Typography color="text.secondary">
+                今日の復習はありません。未学習の単語は {unlearnedCount} 語です。
+              </Typography>
+            )}
+          </Box>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ flexShrink: 0 }}>
+            <Button
+              component={Link}
+              to="/test?mode=review"
+              variant={reviewCount > 0 ? 'contained' : 'outlined'}
+              startIcon={<PlayArrowIcon />}
+              disabled={reviewCount === 0}
+            >
+              復習を始める
+            </Button>
+            <Button variant="outlined" startIcon={<SettingsIcon />} onClick={onSettings}>
+              間隔を設定
+            </Button>
+          </Stack>
+        </Stack>
+      </CardContent>
+    </Card>
+  )
+}
+
+const REVIEW_INTERVAL_FIELDS = [
+  { key: 'correctFirstDays', label: '正解・1回目', helper: '初めて正解した後' },
+  { key: 'correctSecondDays', label: '正解・2回目', helper: '2回連続で正解した後' },
+  {
+    key: 'correctLaterMinDays',
+    label: '正解・3回目以降の最低値',
+    helper: '自動計算された間隔が短くならないための下限',
+  },
+  { key: 'incorrectDays', label: '不正解', helper: '不正解を選んだ後' },
+  { key: 'unknownDays', label: '「わからない」', helper: '「わからない」を選んだ後' },
+  { key: 'masteredDays', label: '「習得済みにする」', helper: '手動で習得済みにした後' },
+]
+
+function ReviewIntervalSettingsDialog({ open, initial, onClose, onSave }) {
+  const [draft, setDraft] = useState(initial)
+  const [errors, setErrors] = useState({})
+
+  useEffect(() => {
+    if (open) {
+      setDraft(initial)
+      setErrors({})
+    }
+  }, [open, initial])
+
+  const handleSave = () => {
+    const validation = validateReviewIntervals(draft)
+    if (!validation.ok) {
+      setErrors(validation.errors)
+      return
+    }
+    onSave(normalizeReviewIntervals(draft))
+  }
+
+  const resetDefaults = () => {
+    setDraft({ ...DEFAULT_REVIEW_INTERVALS })
+    setErrors({})
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>復習間隔を設定</DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2
+         }}>
+          正解状況に応じて、次に復習する日を自動的に調整します。設定値は復習間隔の基準として使われます。0日に設定すると本日中に再び復習対象になります。
+        </Typography>
+        <Stack spacing={3}>
+          {REVIEW_INTERVAL_FIELDS.map((field) => (
+            <TextField
+              key={field.key}
+              fullWidth
+              type="number"
+              label={`${field.label}（日）`}
+              value={draft[field.key]}
+              onChange={(e) => {
+                setDraft((prev) => ({ ...prev, [field.key]: e.target.value }))
+                setErrors((prev) => ({ ...prev, [field.key]: undefined }))
+              }}
+              error={Boolean(errors[field.key])}
+              helperText={errors[field.key] ?? `${field.helper}`}
+              inputProps={{ min: 0, max: MAX_REVIEW_INTERVAL_DAYS, step: 1 }}
+            />
+          ))}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={resetDefaults}>標準値に戻す</Button>
+        <Button onClick={onClose}>キャンセル</Button>
+        <Button variant="contained" onClick={handleSave}>
+          保存
+        </Button>
+      </DialogActions>
+    </Dialog>
   )
 }
 
