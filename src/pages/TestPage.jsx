@@ -67,6 +67,10 @@ const COUNT_OPTIONS = [
   { value: 'all', label: '全問' },
 ]
 
+function scrollToPageTop() {
+  window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+}
+
 export default function TestPage() {
   const { user } = useAuth()
   const { words, updateWords, isLoading: wordsLoading, error: wordsError } = useWords()
@@ -196,6 +200,7 @@ export default function TestPage() {
       ...(questionType === QUESTION_TYPES.FILL_BLANK ? { fillBlankQuestionsByWordId } : {}),
     })
     if (builtQuestions.length < modeMinimum) return
+    scrollToPageTop()
     setQuestions(builtQuestions)
     setCurrentIndex(0)
     setSelectedAnswer(null)
@@ -243,9 +248,11 @@ export default function TestPage() {
 
   function goNext() {
     if (currentIndex + 1 < questions.length) {
+      scrollToPageTop()
       setCurrentIndex((prev) => prev + 1)
       setSelectedAnswer(null)
     } else {
+      scrollToPageTop()
       // 結果画面への遷移時に1回だけ記録する（effectではなくハンドラ内で呼び二重記録を防ぐ）
       recordTestSession({
         total: questions.length,
@@ -274,6 +281,7 @@ export default function TestPage() {
   }
 
   function restart() {
+    scrollToPageTop()
     setPhase('setup')
     setQuestions([])
     setCurrentIndex(0)
@@ -624,6 +632,8 @@ function QuizScreen({
 }) {
   const [typedValue, setTypedValue] = useState('')
   const fillBlankInputRef = useRef(null)
+  const feedbackStartRef = useRef(null)
+  const wasAnsweredRef = useRef(false)
   const isComposingRef = useRef(false)
   const didAdvanceOnEnterRef = useRef(false)
   const answered = selectedAnswer !== null
@@ -661,6 +671,39 @@ function QuizScreen({
     if (!isFillBlank || answered) return
     fillBlankInputRef.current?.focus({ preventScroll: true })
   }, [question, isFillBlank, answered])
+
+  // 回答後に解答解説の先頭へ移動する。スマホでは入力欄の消滅に伴って
+  // キーボードが閉じ、viewportが変化するため、変化が落ち着いてから1回だけ実行する。
+  useEffect(() => {
+    const justAnswered = answered && !wasAnsweredRef.current
+    wasAnsweredRef.current = answered
+    if (!justAnswered) return undefined
+
+    let timeoutId
+    let didScroll = false
+    const viewport = window.visualViewport
+    const scrollToFeedback = () => {
+      if (didScroll) return
+      didScroll = true
+      viewport?.removeEventListener('resize', scheduleScroll)
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      feedbackStartRef.current?.scrollIntoView({
+        behavior: reduceMotion ? 'auto' : 'smooth',
+        block: 'start',
+      })
+    }
+    const scheduleScroll = () => {
+      window.clearTimeout(timeoutId)
+      timeoutId = window.setTimeout(scrollToFeedback, 250)
+    }
+
+    viewport?.addEventListener('resize', scheduleScroll)
+    scheduleScroll()
+    return () => {
+      window.clearTimeout(timeoutId)
+      viewport?.removeEventListener('resize', scheduleScroll)
+    }
+  }, [answered])
 
   // 回答後は、問題形式にかかわらず Enter で「次へ」（最終問では「結果を見る」）へ進む。
   useEffect(() => {
@@ -840,7 +883,12 @@ function QuizScreen({
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               回答時間: {formatDuration(elapsedMs)}
             </Typography>
-            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', mb: 1 }}>
+            <Stack
+              ref={feedbackStartRef}
+              direction="row"
+              spacing={0.75}
+              sx={{ alignItems: 'center', mb: 1, scrollMarginTop: 2 }}
+            >
               {isCorrect ? (
                 <>
                   <CheckCircleIcon color="success" fontSize="small" />
