@@ -72,6 +72,7 @@ export default function TestPage() {
   const { words, updateWords, isLoading: wordsLoading, error: wordsError } = useWords()
   const {
     recordTestSession,
+    recordLeaderboardAnswer,
     isLoading: sessionsLoading,
     error: sessionsError,
   } = useTestSessions()
@@ -213,6 +214,7 @@ export default function TestPage() {
     const question = questions[currentIndex]
     const isCorrect = isQuestionAnswerCorrect(question, answer)
     setSelectedAnswer(answer)
+    recordLeaderboardAnswer() // 有効回答数+1（正誤・特殊回答を問わずここで確定する）
     if (isCorrect) {
       setScore((prev) => prev + 1)
     } else {

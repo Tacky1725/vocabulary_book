@@ -7,6 +7,7 @@ import {
   addDoc,
   collection,
   doc,
+  getDoc,
   increment,
   onSnapshot,
   orderBy,
@@ -23,6 +24,31 @@ const publicProfileDoc = (uid) => doc(db, 'publicProfiles', uid)
 const dailyEntriesCol = (jstDate) => collection(db, 'leaderboardDaily', jstDate, 'entries')
 const dailyEntryDoc = (jstDate, uid) => doc(db, 'leaderboardDaily', jstDate, 'entries', uid)
 const cheersCol = (uid) => collection(db, 'users', uid, 'cheers')
+
+// 自分の公開プロフィール（表示名・アイコン）を購読する。未設定なら null を配信する
+// （初回設定モーダルの表示要否の判定に使う）。戻り値は購読解除関数。
+export function subscribePublicProfile(uid, onChange, onError) {
+  return onSnapshot(
+    publicProfileDoc(uid),
+    (snap) => onChange(snap.data() ?? null),
+    (err) => {
+      console.error('公開プロフィールの購読に失敗しました', err)
+      onError?.(err)
+    }
+  )
+}
+
+// 他ユーザーの公開プロフィールを1回だけ取得する（届いた応援の送信元表示名解決など）。
+// リアルタイム性は不要なため購読ではなく単発取得にする。
+export async function getPublicProfile(uid) {
+  try {
+    const snap = await getDoc(publicProfileDoc(uid))
+    return { ok: true, data: snap.data() ?? null }
+  } catch (e) {
+    console.error('公開プロフィールの取得に失敗しました', e)
+    return { ok: false, error: '公開プロフィールの取得に失敗しました' }
+  }
+}
 
 // ランキング参加用の表示名・アイコンを保存する。
 export async function savePublicProfile(uid, { displayName, photoURL }) {

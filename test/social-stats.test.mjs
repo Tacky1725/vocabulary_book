@@ -5,6 +5,8 @@ import {
   calcStreakFromDateKeys,
   calcStreakFromSessions,
   calcWeeklyQuestionCount,
+  formatOrdinal,
+  getMedalEmoji,
   getWeekDateKeys,
   getWeekStartDateKey,
   isWeeklyChallengeCompleted,
@@ -96,4 +98,27 @@ test('buildRanking は同値を同順位にし、同順位内はuid昇順で安�
     { uid: 'd', value: 5, rank: 4 },
   ])
   assert.deepEqual(buildRanking([]), [])
+})
+
+test('formatOrdinal は11〜13番台を例外としてth/st/nd/rdを使い分ける', () => {
+  assert.equal(formatOrdinal(1), '1st')
+  assert.equal(formatOrdinal(2), '2nd')
+  assert.equal(formatOrdinal(3), '3rd')
+  assert.equal(formatOrdinal(4), '4th')
+  assert.equal(formatOrdinal(11), '11th')
+  assert.equal(formatOrdinal(12), '12th')
+  assert.equal(formatOrdinal(13), '13th')
+  assert.equal(formatOrdinal(21), '21st')
+  assert.equal(formatOrdinal(22), '22nd')
+  assert.equal(formatOrdinal(23), '23rd')
+  assert.equal(formatOrdinal(101), '101st')
+  assert.equal(formatOrdinal(111), '111th')
+  assert.equal(formatOrdinal(113), '113th')
+})
+
+test('getMedalEmoji は上位3位だけメダルを返し、それ以外はnull', () => {
+  assert.equal(getMedalEmoji(1), '🥇')
+  assert.equal(getMedalEmoji(2), '🥈')
+  assert.equal(getMedalEmoji(3), '🥉')
+  assert.equal(getMedalEmoji(4), null)
 })

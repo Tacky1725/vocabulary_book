@@ -97,6 +97,43 @@ export function isWeeklyChallengeCompleted(weeklyQuestionCount) {
   return weeklyQuestionCount >= WEEKLY_CHALLENGE_TARGET
 }
 
+// 順位を英語の序数表記(1st, 2nd, 3rd, 4th, ...)にする。11〜13番台は例外的にthを使う。
+export function formatOrdinal(rank) {
+  const mod100 = rank % 100
+  if (mod100 >= 11 && mod100 <= 13) return `${rank}th`
+  switch (rank % 10) {
+    case 1:
+      return `${rank}st`
+    case 2:
+      return `${rank}nd`
+    case 3:
+      return `${rank}rd`
+    default:
+      return `${rank}th`
+  }
+}
+
+const MEDAL_EMOJI = { 1: '🥇', 2: '🥈', 3: '🥉' }
+
+// 上位3位のメダル絵文字を返す。対象外は null（呼び出し側で表示要否を判断する）
+export function getMedalEmoji(rank) {
+  return MEDAL_EMOJI[rank] ?? null
+}
+
+// Firestoreの Timestamp（.toDate()を持つ）をJSTの日時表示用文字列に整形する。
+// サーバー未確定（pending中のserverTimestamp）でtoDate()が無い場合は空文字を返す。
+export function formatCheerTimestamp(timestamp) {
+  if (!timestamp?.toDate) return ''
+  return timestamp.toDate().toLocaleString('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 // entries: [{ uid, value }, ...] → valueの降順、同値はuid昇順で安定させたランキングを返す。
 // 同値は同順位（競技式: 1位, 1位, 3位）とする。
 // 戻り値: [{ uid, value, rank }, ...]
