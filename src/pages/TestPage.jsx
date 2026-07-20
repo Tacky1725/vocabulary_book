@@ -314,7 +314,7 @@ export default function TestPage() {
   }
 
   return (
-    <Card>
+    <Card sx={{ mb: { xs: 2, sm: 0 } }}>
       <CardContent>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
           <QuizIcon color="primary" />
@@ -499,14 +499,45 @@ function answerSx(answered, isCorrectAnswer, isSelected) {
   return { ...base, '&.Mui-disabled': { opacity: 0.55 } }
 }
 
-function FillBlankAnswer({ answered }) {
+function FillBlankAnswer({
+  answered,
+  value,
+  error,
+  inputRef,
+  onChange,
+  onKeyDown,
+  onCompositionStart,
+  onCompositionEnd,
+}) {
   if (answered) return null
 
   return (
-    <Stack spacing={1.25} sx={{ mb: 2, alignItems: 'center' }}>
+    <Stack spacing={1.25} sx={{ mb: 2 }}>
       <Typography variant="body2" color="text.secondary">
-        キーボードで入力してください（Enterで回答、Backspaceで1文字削除）
+        空欄部分を入力してください（Enterで回答）
       </Typography>
+      <TextField
+        inputRef={inputRef}
+        autoFocus
+        fullWidth
+        label="空欄部分を入力"
+        value={value}
+        error={error}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        onCompositionStart={onCompositionStart}
+        onCompositionEnd={onCompositionEnd}
+        slotProps={{
+          htmlInput: {
+            inputMode: 'text',
+            autoCapitalize: 'none',
+            autoCorrect: 'off',
+            autoComplete: 'off',
+            enterKeyHint: 'done',
+            spellCheck: false,
+          },
+        }}
+      />
     </Stack>
   )
 }
@@ -592,6 +623,7 @@ function QuizScreen({
   onMastered,
 }) {
   const [typedValue, setTypedValue] = useState('')
+  const fillBlankInputRef = useRef(null)
   const isComposingRef = useRef(false)
   const didAdvanceOnEnterRef = useRef(false)
   const answered = selectedAnswer !== null
@@ -622,6 +654,14 @@ function QuizScreen({
     didAdvanceOnEnterRef.current = false
   }, [question])
 
+  // 実入力欄にフォーカスして、PCではすぐ入力できるようにする。
+  // スマホでキーボードが自動表示されないブラウザでも、表示された入力欄をタップすれば
+  // 端末標準キーボードを利用できる。
+  useEffect(() => {
+    if (!isFillBlank || answered) return
+    fillBlankInputRef.current?.focus({ preventScroll: true })
+  }, [question, isFillBlank, answered])
+
   // 回答後は、問題形式にかかわらず Enter で「次へ」（最終問では「結果を見る」）へ進む。
   useEffect(() => {
     if (!answered) return undefined
@@ -637,47 +677,14 @@ function QuizScreen({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [answered, onNext])
 
-  useEffect(() => {
-    if (!isFillBlank || answered) return undefined
-
-    const handleCompositionStart = () => {
-      isComposingRef.current = true
-    }
-    const handleCompositionEnd = () => {
-      isComposingRef.current = false
-    }
-    const handleKeyDown = (event) => {
-      if (event.nativeEvent?.isComposing || event.isComposing || isComposingRef.current) return
-      if (event.key === 'Backspace') {
-        event.preventDefault()
-        setTypedValue((value) => value.slice(0, -1))
-        return
-      }
-      if (event.key === 'Enter') {
-        event.preventDefault()
-        if (fillBlankCanSubmit) onAnswer({ kind: 'typed', value: typedValue })
-        return
-      }
-      if (
-        event.key.length === 1 &&
-        !event.ctrlKey &&
-        !event.metaKey &&
-        !event.altKey
-      ) {
-        event.preventDefault()
-        setTypedValue((value) => value + event.key)
-      }
-    }
-
-    window.addEventListener('compositionstart', handleCompositionStart)
-    window.addEventListener('compositionend', handleCompositionEnd)
-    window.addEventListener('keydown', handleKeyDown)
-    return () => {
-      window.removeEventListener('compositionstart', handleCompositionStart)
-      window.removeEventListener('compositionend', handleCompositionEnd)
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [answered, fillBlankCanSubmit, isFillBlank, onAnswer, typedValue])
+  function handleFillBlankKeyDown(event) {
+    if (event.nativeEvent?.isComposing || event.isComposing || isComposingRef.current) return
+    if (event.key !== 'Enter') return
+    event.preventDefault()
+    // 回答の状態更新によって window の「次へ」処理が同じEnterイベントを拾わないようにする。
+    event.stopPropagation()
+    if (fillBlankCanSubmit) onAnswer({ kind: 'typed', value: typedValue })
+  }
 
   return (
     <Card>
@@ -729,6 +736,17 @@ function QuizScreen({
         {isFillBlank ? (
           <FillBlankAnswer
             answered={answered}
+            value={typedValue}
+            error={fillBlankValidation.isTooLong}
+            inputRef={fillBlankInputRef}
+            onChange={(event) => setTypedValue(event.target.value)}
+            onKeyDown={handleFillBlankKeyDown}
+            onCompositionStart={() => {
+              isComposingRef.current = true
+            }}
+            onCompositionEnd={() => {
+              isComposingRef.current = false
+            }}
           />
         ) : (
           <Box

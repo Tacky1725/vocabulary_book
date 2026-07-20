@@ -37,6 +37,7 @@ import { useAuth } from './hooks/useAuth.jsx'
 import { logout } from './lib/firebase.js'
 import {
   MOBILE_CONTENT_BOTTOM_PADDING,
+  MOBILE_CONTENT_BOTTOM_PADDING_FALLBACK,
   MOBILE_NAV_CONTENT_HEIGHT,
   MOBILE_NAV_SAFE_AREA,
 } from './lib/layout.js'
@@ -233,8 +234,14 @@ export default function App() {
           mx: 'auto',
           px: { xs: 1.5, sm: 3 },
           py: { xs: 2, sm: 3 },
-          // 下部固定ナビと本文が重ならないよう余白を確保（safe area と余白込み）。
-          pb: showMobileNav ? MOBILE_CONTENT_BOTTOM_PADDING : { xs: 2, sm: 3 },
+          // 下部固定ナビと本文が重ならないよう余白を確保する。safe area 非対応ブラウザでは
+          // 固定値を使い、対応ブラウザではホームバー分を上乗せする。
+          pb: showMobileNav ? MOBILE_CONTENT_BOTTOM_PADDING_FALLBACK : { xs: 2, sm: 3 },
+          ...(showMobileNav && {
+            '@supports (padding-bottom: env(safe-area-inset-bottom))': {
+              pb: MOBILE_CONTENT_BOTTOM_PADDING,
+            },
+          }),
         }}
       >
         <AppContent />
