@@ -3,8 +3,6 @@ import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import LinearProgress from '@mui/material/LinearProgress'
-import Chip from '@mui/material/Chip'
 import Tabs from '@mui/material/Tabs'
 import Tab from '@mui/material/Tab'
 import Table from '@mui/material/Table'
@@ -28,7 +26,6 @@ import Alert from '@mui/material/Alert'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemText from '@mui/material/ListItemText'
-import EmojiEventsIcon from '@mui/icons-material/EmojiEvents'
 import FavoriteIcon from '@mui/icons-material/Favorite'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { usePublicProfile } from '../hooks/usePublicProfile.js'
@@ -38,7 +35,6 @@ import { useSenderDisplayNames } from '../hooks/useSenderDisplayNames.js'
 import { sendCheer } from '../lib/socialCloud.js'
 import {
   CHEER_REACTIONS,
-  WEEKLY_CHALLENGE_TARGET,
   buildRanking,
   formatCheerTimestamp,
   formatOrdinal,
@@ -48,6 +44,7 @@ import {
   toJstDateKey,
 } from '../lib/socialStats.js'
 import { LoadingState } from '../components/LoadingState.jsx'
+import { WeeklyChallengeCard } from '../components/WeeklyChallengeCard.jsx'
 
 const RANKING_TABS = [
   { id: 'weeklyQuestions', label: '問題数 - Weekly', valueField: 'questionCount' },
@@ -141,31 +138,6 @@ export default function Ranking() {
         )}
       </Snackbar>
     </Stack>
-  )
-}
-
-function WeeklyChallengeCard({ count, completed }) {
-  const progress = Math.min(100, (count / WEEKLY_CHALLENGE_TARGET) * 100)
-  return (
-    <Card>
-      <CardContent>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-          <Typography variant="h6">今週のチャレンジ</Typography>
-          {completed && <Chip icon={<EmojiEventsIcon />} label="達成！" color="success" />}
-        </Stack>
-        <Typography color="text.secondary" sx={{ mb: 1 }}>
-          100問解こう
-        </Typography>
-        <LinearProgress
-          variant="determinate"
-          value={progress}
-          sx={{ height: 8, borderRadius: 4, mb: 0.5 }}
-        />
-        <Typography variant="body2" color="text.secondary">
-          {count} / {WEEKLY_CHALLENGE_TARGET}問
-        </Typography>
-      </CardContent>
-    </Card>
   )
 }
 

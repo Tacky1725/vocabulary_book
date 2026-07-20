@@ -32,10 +32,16 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import AddIcon from '@mui/icons-material/Add'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import ReplayIcon from '@mui/icons-material/Replay'
+import LeaderboardIcon from '@mui/icons-material/Leaderboard'
+import DonutSmallIcon from '@mui/icons-material/DonutSmall'
+import HistoryIcon from '@mui/icons-material/History'
+import { useAuth } from '../hooks/useAuth.jsx'
 import { useWords } from '../hooks/useWords.js'
 import { useTestSessions } from '../hooks/useTestSessions.js'
 import { useSettings } from '../hooks/useSettings.js'
+import { useWeeklyLeaderboard } from '../hooks/useLeaderboard.js'
 import { DataErrorState, LoadingState } from '../components/LoadingState.jsx'
+import { WeeklyChallengeCard } from '../components/WeeklyChallengeCard.jsx'
 import {
   calcStreak,
   calcMasteryDistribution,
@@ -51,6 +57,7 @@ import {
   normalizeReviewIntervals,
   validateReviewIntervals,
 } from '../lib/srs.js'
+import { getWeekStartDateKey, isWeeklyChallengeCompleted, toJstDateKey } from '../lib/socialStats.js'
 
 const RECENT_SESSION_COUNT = 5
 
@@ -79,6 +86,7 @@ const MASTERY_BAR_COLOR = {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth()
   const { words, isLoading: wordsLoading, error: wordsError } = useWords()
   const { sessions, isLoading: sessionsLoading, error: sessionsError } = useTestSessions()
   const {
@@ -87,6 +95,14 @@ export default function Dashboard() {
     isLoading: settingsLoading,
     error: settingsError,
   } = useSettings()
+
+  const weekStartKey = useMemo(() => getWeekStartDateKey(toJstDateKey(new Date())), [])
+  const weekly = useWeeklyLeaderboard(weekStartKey)
+  const weeklyQuestionCount = useMemo(
+    () => weekly.entries.find((e) => e.uid === user?.uid)?.questionCount ?? 0,
+    [weekly.entries, user?.uid]
+  )
+  const weeklyChallengeCompleted = isWeeklyChallengeCompleted(weeklyQuestionCount)
 
   const summary = useMemo(() => calcSummary(words, sessions), [words, sessions])
   const streak = useMemo(() => calcStreak(sessions), [sessions])
@@ -170,6 +186,19 @@ export default function Dashboard() {
         onEdit={() => setGoalDialogOpen(true)}
       />
 
+      {/* 週間チャレンジ（切磋琢磨機能）とランキングへの導線 */}
+      <WeeklyChallengeCard count={weeklyQuestionCount} completed={weeklyChallengeCompleted}>
+        <Button
+          component={Link}
+          to="/ranking"
+          variant="outlined"
+          startIcon={<LeaderboardIcon />}
+          sx={{ mt: 1.5 }}
+        >
+          ランキングを見る
+        </Button>
+      </WeeklyChallengeCard>
+
       <ReviewQueueCard
         reviewCount={reviewCount}
         unlearnedCount={unlearnedCount}
@@ -179,9 +208,12 @@ export default function Dashboard() {
       {/* 習熟度の分布 */}
       <Card>
         <CardContent>
-          <Typography variant="h6" component="h3" gutterBottom>
-            習熟度の分布
-          </Typography>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
+            <DonutSmallIcon color="primary" fontSize="small" />
+            <Typography variant="h6" component="h3">
+              習熟度の分布
+            </Typography>
+          </Stack>
           {hasWords ? (
             <Stack spacing={1.5}>
               {distribution.map((bucket) => {
@@ -247,9 +279,12 @@ export default function Dashboard() {
       {/* 最近の学習 */}
       <Card>
         <CardContent>
-          <Typography variant="h6" component="h3" gutterBottom>
-            最近の学習
-          </Typography>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
+            <HistoryIcon color="primary" fontSize="small" />
+            <Typography variant="h6" component="h3">
+              最近の学習
+            </Typography>
+          </Stack>
           {hasTests ? (
             <Stack divider={<Divider />}>
               {recentSessions.map((session, index) => (
@@ -448,19 +483,25 @@ function ActivityCalendar({ calendar }) {
       <Box sx={{ overflowX: 'auto', pb: 0.5 }}>
         {/* inline-flex で内容幅に合わせ、狭い画面ではこの器がスクロールする */}
         <Box sx={{ display: 'inline-flex', flexDirection: 'column' }}>
-          {/* 月ラベル行（曜日ラベル列の分だけ左に寄せる） */}
+          {/* 月ラベル行（曜日ラベル列の分だけ左に寄せる）。
+              2列目に月の始まりが来ると1列目（直前月の端）とラベルが隣接して見にくいため、
+              その場合は1列目のラベルを間引く。 */}
           <Box sx={{ display: 'flex', pl: `${WEEKDAY_COL + GAP}px`, mb: 0.5 }}>
-            {calendar.weeks.map((_, w) => {
-              const month = calendar.months.find((m) => m.colIndex === w)
-              return (
-                <Box
-                  key={w}
-                  sx={{ width: colWidth, fontSize: 10, color: 'text.secondary', lineHeight: 1 }}
-                >
-                  {month?.label ?? ''}
-                </Box>
-              )
-            })}
+            {(() => {
+              const hasMonthAtCol1 = calendar.months.some((m) => m.colIndex === 1)
+              return calendar.weeks.map((_, w) => {
+                const suppressed = w === 0 && hasMonthAtCol1
+                const month = suppressed ? null : calendar.months.find((m) => m.colIndex === w)
+                return (
+                  <Box
+                    key={w}
+                    sx={{ width: colWidth, fontSize: 10, color: 'text.secondary', lineHeight: 1 }}
+                  >
+                    {month?.label ?? ''}
+                  </Box>
+                )
+              })
+            })()}
           </Box>
 
           {/* 曜日ラベル列 + 週ごとの縦7マス */}
