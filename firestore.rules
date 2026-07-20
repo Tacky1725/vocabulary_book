@@ -8,6 +8,12 @@ rules_version = '2';
 //   - 各利用者は自分の users/{uid} 配下だけを読み書きできる（他人のデータは読めない・書けない）
 //   - 列挙されていないアカウントはログインしても一切読み書きできず、無料枠の消費（乱用）も不可能
 //
+// 例外（切磋琢磨機能のランキング用。docs/social-learning-mvp.md が合意仕様）:
+//   - publicProfiles と leaderboardDaily は許可リスト内の全ユーザーが読める公開データ。書き込みは本人のみ。
+//   - users/{uid}/cheers だけは、受信者(uid)以外の許可済みユーザーも
+//     senderUid=自分・定型typeの条件で作成できる（応援送信）。
+//   これら以外の users/{uid} 本体（words・testSessions等）は所有者限定のまま変えていない。
+//
 // 利用者を追加するとき: allowedEmails に1行追加して「公開」を押すだけ。
 // メールアドレスは、本人がアプリにログインした際に右上アカウントメニューに表示されるものと
 // 完全一致させること（大文字小文字も区別される）。
@@ -26,6 +32,45 @@ service cloud.firestore {
     }
     match /users/{uid}/{document=**} {
       allow read, write: if isAllowedUser() && request.auth.uid == uid;
+    }
+
+    // ランキング参加用の表示名・アイコン。他ユーザーも読めるが、書き込みは本人のみ。
+    match /publicProfiles/{uid} {
+      allow read: if isAllowedUser();
+      allow create, update: if isAllowedUser()
+        && request.auth.uid == uid
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() >= 1
+        && request.resource.data.displayName.size() <= 20;
+      allow delete: if isAllowedUser() && request.auth.uid == uid;
+    }
+
+    // 日次のランキング公開集計。本人のみ自分のエントリを書け、許可済み全員が閲覧できる。
+    // 集計値そのものの改ざん防止（サーバー側再計算）は将来実装。ここでは型・範囲だけを検証する。
+    match /leaderboardDaily/{date}/entries/{uid} {
+      allow read: if isAllowedUser();
+      allow create, update: if isAllowedUser()
+        && request.auth.uid == uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.questionCount is int
+        && request.resource.data.questionCount >= 0
+        && request.resource.data.streak is int
+        && request.resource.data.streak >= 0
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() >= 1
+        && request.resource.data.displayName.size() <= 20;
+      allow delete: if isAllowedUser() && request.auth.uid == uid;
+    }
+
+    // 応援リアクション。users/{uid}/{document=**} の所有者限定ルールに対する唯一の例外。
+    // 受信者(uid)以外の許可済みユーザーが、senderUid=自分・定型typeの条件でのみ作成できる
+    // （マッチしたルールはOR結合されるため、この allow が上の所有者限定ルールを緩めることはない）。
+    // 読み取りは上の所有者限定ルールにより受信者本人のみ。初期版では更新・削除を認めない。
+    match /users/{uid}/cheers/{cheerId} {
+      allow create: if isAllowedUser()
+        && request.auth.uid != uid
+        && request.resource.data.senderUid == request.auth.uid
+        && request.resource.data.type in ['keepGoing', 'almostThere', 'greatJob', 'congrats'];
     }
   }
 }

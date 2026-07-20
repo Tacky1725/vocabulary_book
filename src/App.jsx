@@ -25,10 +25,13 @@ import HomeIcon from '@mui/icons-material/Home'
 import AddCircleIcon from '@mui/icons-material/AddCircle'
 import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
 import QuizIcon from '@mui/icons-material/Quiz'
+import LeaderboardIcon from '@mui/icons-material/Leaderboard'
 import Dashboard from './pages/Dashboard.jsx'
 import AddWord from './pages/AddWord.jsx'
 import WordList from './pages/WordList.jsx'
 import TestPage from './pages/TestPage.jsx'
+import Ranking from './pages/Ranking.jsx'
+import Settings from './pages/Settings.jsx'
 import LoginScreen from './components/LoginScreen.jsx'
 import { useAuth } from './hooks/useAuth.jsx'
 import { logout } from './lib/firebase.js'
@@ -38,6 +41,7 @@ const NAV_ITEMS = [
   { to: '/add', label: '単語追加', shortLabel: '追加', icon: <AddCircleIcon /> },
   { to: '/words', label: '単語一覧', shortLabel: '一覧', icon: <FormatListBulletedIcon /> },
   { to: '/test', label: 'テスト', shortLabel: 'テスト', icon: <QuizIcon /> },
+  { to: '/ranking', label: 'ランキング', shortLabel: 'ランキング', icon: <LeaderboardIcon /> },
 ]
 
 // 現在のパスに対応する NAV_ITEMS の to を返す（末尾は前方一致でネストにも耐える）
@@ -119,6 +123,9 @@ function AccountMenu({ user }) {
           </Typography>
         </Box>
         <Divider />
+        <MenuItem component={RouterLink} to="/settings" onClick={() => setAnchorEl(null)}>
+          設定
+        </MenuItem>
         <MenuItem
           onClick={() => {
             setAnchorEl(null)
@@ -165,6 +172,8 @@ function AppContent() {
       <Route path="/add" element={<AddWord />} />
       <Route path="/words" element={<WordList />} />
       <Route path="/test" element={<TestPage />} />
+      <Route path="/ranking" element={<Ranking />} />
+      <Route path="/settings" element={<Settings />} />
     </Routes>
   )
 }
