@@ -45,10 +45,11 @@ import {
 } from '../lib/socialStats.js'
 import { LoadingState } from '../components/LoadingState.jsx'
 import { WeeklyChallengeCard } from '../components/WeeklyChallengeCard.jsx'
+import { MOBILE_SNACKBAR_BOTTOM } from '../lib/layout.js'
 
 const RANKING_TABS = [
-  { id: 'weeklyQuestions', label: '問題数 - Weekly', valueField: 'questionCount' },
-  { id: 'dailyQuestions', label: '問題数 - Daily', valueField: 'questionCount' },
+  { id: 'weeklyQuestions', label: '問題数(Weekly)', valueField: 'questionCount' },
+  { id: 'dailyQuestions', label: '問題数(Daily)', valueField: 'questionCount' },
   { id: 'streak', label: '継続日数', valueField: 'streak' },
 ]
 
@@ -108,7 +109,7 @@ export default function Ranking() {
           scrollButtons="auto"
         >
           {RANKING_TABS.map((t) => (
-            <Tab key={t.id} value={t.id} label={t.label} />
+            <Tab key={t.id} value={t.id} label={t.label} sx={{ textTransform: 'none' }} />
           ))}
         </Tabs>
         <CardContent>
@@ -130,7 +131,12 @@ export default function Ranking() {
         />
       )}
 
-      <Snackbar open={Boolean(snackbar)} autoHideDuration={3000} onClose={() => setSnackbar(null)}>
+      <Snackbar
+        open={Boolean(snackbar)}
+        autoHideDuration={3000}
+        onClose={() => setSnackbar(null)}
+        sx={{ bottom: { xs: MOBILE_SNACKBAR_BOTTOM, sm: 3 } }}
+      >
         {snackbar && (
           <Alert severity={snackbar.severity} onClose={() => setSnackbar(null)}>
             {snackbar.message}
@@ -141,8 +147,17 @@ export default function Ranking() {
   )
 }
 
-const MEDAL_CELL_SX = { width: 52, px: 0.5 }
-const RANK_CELL_SX = { width: 44, px: 0.5 }
+const COMPACT_CELL_SX = { px: 0.5, whiteSpace: 'nowrap' }
+const NAME_CELL_SX = { px: 1, overflowWrap: 'anywhere' }
+
+// 名前列以外を必要最小限に固定し、残り幅はすべて名前へ割り当てる。
+const RANKING_COLUMN_WIDTHS = {
+  medal: 32,
+  rank: 38,
+  avatar: 40,
+  score: 38,
+  cheer: 40,
+}
 
 function RankingTable({ rows, myUid, onSendCheer }) {
   const [menuState, setMenuState] = useState(null) // { anchorEl, uid }
@@ -153,15 +168,23 @@ function RankingTable({ rows, myUid, onSendCheer }) {
 
   return (
     <TableContainer>
-      <Table size="small">
+      <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
+        <colgroup>
+          <col style={{ width: RANKING_COLUMN_WIDTHS.medal }} />
+          <col style={{ width: RANKING_COLUMN_WIDTHS.rank }} />
+          <col style={{ width: RANKING_COLUMN_WIDTHS.avatar }} />
+          <col />
+          <col style={{ width: RANKING_COLUMN_WIDTHS.score }} />
+          <col style={{ width: RANKING_COLUMN_WIDTHS.cheer }} />
+        </colgroup>
         <TableHead>
           <TableRow>
-            <TableCell align="center" sx={MEDAL_CELL_SX} />
-            <TableCell align="right" sx={RANK_CELL_SX} />
-            <TableCell />
-            <TableCell>名前</TableCell>
-            <TableCell align="right">スコア</TableCell>
-            <TableCell align="right">応援</TableCell>
+            <TableCell align="center" sx={COMPACT_CELL_SX} />
+            <TableCell align="right" sx={COMPACT_CELL_SX} />
+            <TableCell sx={COMPACT_CELL_SX} />
+            <TableCell sx={NAME_CELL_SX}>名前</TableCell>
+            <TableCell align="right" sx={COMPACT_CELL_SX} />
+            <TableCell align="right" sx={COMPACT_CELL_SX}>応援</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -172,23 +195,23 @@ function RankingTable({ rows, myUid, onSendCheer }) {
                 key={row.uid}
                 sx={isMe ? { bgcolor: (theme) => theme.palette.action.selected } : undefined}
               >
-                <TableCell align="center" sx={MEDAL_CELL_SX}>
+                <TableCell align="center" sx={COMPACT_CELL_SX}>
                   {getMedalEmoji(row.rank) ?? ''}
                 </TableCell>
-                <TableCell align="right" sx={RANK_CELL_SX}>
+                <TableCell align="right" sx={COMPACT_CELL_SX}>
                   {formatOrdinal(row.rank)}
                 </TableCell>
-                <TableCell>
+                <TableCell sx={COMPACT_CELL_SX}>
                   <Avatar src={row.photoURL || undefined} sx={{ width: 28, height: 28 }}>
                     {(row.displayName ?? '?').slice(0, 1)}
                   </Avatar>
                 </TableCell>
-                <TableCell>
+                <TableCell sx={NAME_CELL_SX}>
                   {row.displayName}
                   {isMe && '（あなた）'}
                 </TableCell>
-                <TableCell align="right">{row.value}</TableCell>
-                <TableCell align="right">
+                <TableCell align="right" sx={COMPACT_CELL_SX}>{row.value}</TableCell>
+                <TableCell align="right" sx={COMPACT_CELL_SX}>
                   {!isMe && (
                     <IconButton
                       size="small"
