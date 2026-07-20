@@ -35,6 +35,12 @@ import Settings from './pages/Settings.jsx'
 import LoginScreen from './components/LoginScreen.jsx'
 import { useAuth } from './hooks/useAuth.jsx'
 import { logout } from './lib/firebase.js'
+import {
+  MOBILE_CONTENT_BOTTOM_PADDING,
+  MOBILE_CONTENT_BOTTOM_PADDING_FALLBACK,
+  MOBILE_NAV_CONTENT_HEIGHT,
+  MOBILE_NAV_SAFE_AREA,
+} from './lib/layout.js'
 
 const NAV_ITEMS = [
   { to: '/', label: 'ダッシュボード', shortLabel: 'ホーム', icon: <HomeIcon />, end: true },
@@ -85,13 +91,31 @@ function MobileNav() {
         left: 0,
         right: 0,
         zIndex: (theme) => theme.zIndex.appBar,
-        pb: 'env(safe-area-inset-bottom)',
+        pb: MOBILE_NAV_SAFE_AREA,
       }}
     >
-      <BottomNavigation value={currentTab} showLabels>
+      <BottomNavigation
+        value={currentTab}
+        showLabels
+        sx={{
+          height: MOBILE_NAV_CONTENT_HEIGHT,
+          // MUI の標準 minWidth は80pxで、5項目では400px必要になる。
+          // 320px幅でも各項目を十分なタップ領域（幅64px以上）として表示する。
+          '& .MuiBottomNavigationAction-root': { minWidth: 0, px: 0.25 },
+          '& .MuiBottomNavigationAction-label, & .MuiBottomNavigationAction-label.Mui-selected': {
+            fontSize: '0.625rem',
+            lineHeight: 1.2,
+            whiteSpace: 'nowrap',
+          },
+          '& .mobile-nav-ranking .MuiBottomNavigationAction-label, & .mobile-nav-ranking .MuiBottomNavigationAction-label.Mui-selected': {
+            fontSize: '0.5625rem',
+          },
+        }}
+      >
         {NAV_ITEMS.map((item) => (
           <BottomNavigationAction
             key={item.to}
+            className={item.to === '/ranking' ? 'mobile-nav-ranking' : undefined}
             label={item.shortLabel}
             value={item.to}
             icon={item.icon}
@@ -210,8 +234,14 @@ export default function App() {
           mx: 'auto',
           px: { xs: 1.5, sm: 3 },
           py: { xs: 2, sm: 3 },
-          // 下部固定ナビと本文が重ならないよう余白を確保（safe-area 込み）
-          pb: showMobileNav ? 'calc(72px + env(safe-area-inset-bottom))' : { xs: 2, sm: 3 },
+          // 下部固定ナビと本文が重ならないよう余白を確保する。safe area 非対応ブラウザでは
+          // 固定値を使い、対応ブラウザではホームバー分を上乗せする。
+          pb: showMobileNav ? MOBILE_CONTENT_BOTTOM_PADDING_FALLBACK : { xs: 2, sm: 3 },
+          ...(showMobileNav && {
+            '@supports (padding-bottom: env(safe-area-inset-bottom))': {
+              pb: MOBILE_CONTENT_BOTTOM_PADDING,
+            },
+          }),
         }}
       >
         <AppContent />

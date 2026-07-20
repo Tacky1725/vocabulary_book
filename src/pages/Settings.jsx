@@ -11,6 +11,7 @@ import Alert from '@mui/material/Alert'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { usePublicProfile } from '../hooks/usePublicProfile.js'
 import { LoadingState } from '../components/LoadingState.jsx'
+import { MOBILE_SNACKBAR_BOTTOM } from '../lib/layout.js'
 
 export default function Settings() {
   const { user } = useAuth()
@@ -77,7 +78,12 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      <Snackbar open={Boolean(snackbar)} autoHideDuration={3000} onClose={() => setSnackbar(null)}>
+      <Snackbar
+        open={Boolean(snackbar)}
+        autoHideDuration={3000}
+        onClose={() => setSnackbar(null)}
+        sx={{ bottom: { xs: MOBILE_SNACKBAR_BOTTOM, sm: 3 } }}
+      >
         {snackbar && (
           <Alert severity={snackbar.severity} onClose={() => setSnackbar(null)}>
             {snackbar.message}
