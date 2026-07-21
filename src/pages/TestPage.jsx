@@ -67,6 +67,10 @@ const COUNT_OPTIONS = [
   { value: 'all', label: '全問' },
 ]
 
+function scrollToPageTop() {
+  window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+}
+
 export default function TestPage() {
   const { user } = useAuth()
   const { words, updateWords, isLoading: wordsLoading, error: wordsError } = useWords()
@@ -196,6 +200,7 @@ export default function TestPage() {
       ...(questionType === QUESTION_TYPES.FILL_BLANK ? { fillBlankQuestionsByWordId } : {}),
     })
     if (builtQuestions.length < modeMinimum) return
+    scrollToPageTop()
     setQuestions(builtQuestions)
     setCurrentIndex(0)
     setSelectedAnswer(null)
@@ -243,9 +248,11 @@ export default function TestPage() {
 
   function goNext() {
     if (currentIndex + 1 < questions.length) {
+      scrollToPageTop()
       setCurrentIndex((prev) => prev + 1)
       setSelectedAnswer(null)
     } else {
+      scrollToPageTop()
       // 結果画面への遷移時に1回だけ記録する（effectではなくハンドラ内で呼び二重記録を防ぐ）
       recordTestSession({
         total: questions.length,
@@ -274,6 +281,7 @@ export default function TestPage() {
   }
 
   function restart() {
+    scrollToPageTop()
     setPhase('setup')
     setQuestions([])
     setCurrentIndex(0)
@@ -376,7 +384,11 @@ export default function TestPage() {
           </Select>
         </FormControl>
 
-        <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={{ xs: 0.5, sm: 0 }}
+          sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between', mb: 1 }}
+        >
           <Typography variant="subtitle2" color="text.secondary">
             出題範囲（CEFR・カテゴリ）
           </Typography>
@@ -388,6 +400,7 @@ export default function TestPage() {
               setCategoryFilter([])
             }}
             disabled={!isFilteringRange}
+            sx={{ alignSelf: { xs: 'flex-end', sm: 'auto' } }}
           >
             絞り込みをリセット
           </Button>
@@ -459,6 +472,7 @@ export default function TestPage() {
           startIcon={<PlayArrowIcon />}
           onClick={startTest}
           disabled={!canStart}
+          sx={{ width: { xs: '100%', sm: 'auto' } }}
         >
           テスト開始
         </Button>
@@ -471,7 +485,14 @@ export default function TestPage() {
 // 4択と「この中にはない」「わからない」で共用する。
 // Button はdisabled時に既定でopacityとcolorを落とすため、Mui-disabled側にも明示的に上書きする。
 function answerSx(answered, isCorrectAnswer, isSelected) {
-  const base = { justifyContent: 'flex-start', textAlign: 'left', py: 1.5, px: 2 }
+  const base = {
+    justifyContent: 'flex-start',
+    textAlign: 'left',
+    py: 1.5,
+    px: 2,
+    minWidth: 0,
+    overflowWrap: 'anywhere',
+  }
   if (!answered) return base
   if (isCorrectAnswer) {
     return {
@@ -624,6 +645,8 @@ function QuizScreen({
 }) {
   const [typedValue, setTypedValue] = useState('')
   const fillBlankInputRef = useRef(null)
+  const feedbackStartRef = useRef(null)
+  const wasAnsweredRef = useRef(false)
   const isComposingRef = useRef(false)
   const didAdvanceOnEnterRef = useRef(false)
   const answered = selectedAnswer !== null
@@ -662,6 +685,39 @@ function QuizScreen({
     fillBlankInputRef.current?.focus({ preventScroll: true })
   }, [question, isFillBlank, answered])
 
+  // 回答後に解答解説の先頭へ移動する。スマホでは入力欄の消滅に伴って
+  // キーボードが閉じ、viewportが変化するため、変化が落ち着いてから1回だけ実行する。
+  useEffect(() => {
+    const justAnswered = answered && !wasAnsweredRef.current
+    wasAnsweredRef.current = answered
+    if (!justAnswered) return undefined
+
+    let timeoutId
+    let didScroll = false
+    const viewport = window.visualViewport
+    const scrollToFeedback = () => {
+      if (didScroll) return
+      didScroll = true
+      viewport?.removeEventListener('resize', scheduleScroll)
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      feedbackStartRef.current?.scrollIntoView({
+        behavior: reduceMotion ? 'auto' : 'smooth',
+        block: 'start',
+      })
+    }
+    const scheduleScroll = () => {
+      window.clearTimeout(timeoutId)
+      timeoutId = window.setTimeout(scrollToFeedback, 250)
+    }
+
+    viewport?.addEventListener('resize', scheduleScroll)
+    scheduleScroll()
+    return () => {
+      window.clearTimeout(timeoutId)
+      viewport?.removeEventListener('resize', scheduleScroll)
+    }
+  }, [answered])
+
   // 回答後は、問題形式にかかわらず Enter で「次へ」（最終問では「結果を見る」）へ進む。
   useEffect(() => {
     if (!answered) return undefined
@@ -689,12 +745,18 @@ function QuizScreen({
   return (
     <Card>
       <CardContent>
-        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={{ xs: 0.5, sm: 0 }}
+          sx={{ justifyContent: 'space-between', alignItems: { xs: 'stretch', sm: 'center' }, mb: 1.5 }}
+        >
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
             <Chip label={`${currentIndex + 1} / ${total}`} size="small" />
             <Typography color="text.secondary">経過時間 {formatDuration(elapsedMs)}</Typography>
           </Stack>
-          <Typography color="text.secondary">正解数: {score}</Typography>
+          <Typography color="text.secondary" sx={{ alignSelf: { xs: 'flex-end', sm: 'auto' } }}>
+            正解数: {score}
+          </Typography>
         </Stack>
 
         <Box sx={{ textAlign: 'center', my: 2.5 }}>
@@ -706,11 +768,12 @@ function QuizScreen({
           <Typography
             variant="h4"
             fontWeight={700}
-            sx={
-              question.type === QUESTION_TYPES.MEANING_TO_WORD || isFillBlank
+            sx={{
+              ...(question.type === QUESTION_TYPES.MEANING_TO_WORD || isFillBlank
                 ? { fontSize: '1.0625rem', lineHeight: 1.7 }
-                : undefined
-            }
+                : {}),
+              overflowWrap: 'anywhere',
+            }}
           >
             {isFillBlank ? (
               <FillBlankPrompt
@@ -727,7 +790,7 @@ function QuizScreen({
             </Typography>
           )}
           {word.phonetic && !isFillBlank && question.type !== QUESTION_TYPES.MEANING_TO_WORD && (
-            <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+            <Typography color="text.secondary" sx={{ mt: 0.5, overflowWrap: 'anywhere' }}>
               {word.phonetic}
             </Typography>
           )}
@@ -783,7 +846,7 @@ function QuizScreen({
         )}
 
         {/* 特殊回答: 「この中にはない」は英語→日本語問題だけで表示する */}
-        <Stack direction="row" spacing={1.25} sx={{ mb: 2 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} sx={{ mb: 2 }}>
           {isFillBlank && (
             <Button
               fullWidth
@@ -840,11 +903,16 @@ function QuizScreen({
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               回答時間: {formatDuration(elapsedMs)}
             </Typography>
-            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', mb: 1 }}>
+            <Stack
+              ref={feedbackStartRef}
+              direction="row"
+              spacing={0.75}
+              sx={{ alignItems: 'center', flexWrap: 'wrap', mb: 1, scrollMarginTop: 2 }}
+            >
               {isCorrect ? (
                 <>
                   <CheckCircleIcon color="success" fontSize="small" />
-                  <Typography color="success.main" fontWeight={700}>
+                  <Typography color="success.main" fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>
                     {question.noneIsCorrect
                       ? '正解！選択肢に正しい意味はありませんでした'
                       : '正解！'}
@@ -862,7 +930,7 @@ function QuizScreen({
                     <Box
                       sx={{
                         display: 'grid',
-                        gridTemplateColumns: 'auto 1fr',
+                        gridTemplateColumns: 'auto minmax(0, 1fr)',
                         columnGap: 0.5,
                         pl: 3,
                       }}
@@ -870,13 +938,13 @@ function QuizScreen({
                       <Typography color="error.main" fontWeight={700} sx={{ textAlign: 'right' }}>
                         正解：
                       </Typography>
-                      <Typography color="error.main" fontWeight={700}>
+                      <Typography color="error.main" fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>
                         {question.answer}
                       </Typography>
                       <Typography color="error.main" fontWeight={700} sx={{ textAlign: 'right' }}>
                         入力した答え：
                       </Typography>
-                      <Typography color="error.main" fontWeight={700}>
+                      <Typography color="error.main" fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>
                         {selectedAnswer?.kind === 'typed'
                           ? completeFillBlankAnswer(selectedAnswer.value, question.answer)
                           : '未回答'}
@@ -886,7 +954,7 @@ function QuizScreen({
                 ) : (
                   <>
                     <CancelIcon color="error" fontSize="small" />
-                    <Typography color="error.main" fontWeight={700}>
+                    <Typography color="error.main" fontWeight={700} sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
                       不正解…正解は「
                       {question.noneIsCorrect ? 'この中にはない' : getChoiceText(correctChoice)}」
                     </Typography>
@@ -900,7 +968,7 @@ function QuizScreen({
                 <Typography variant="subtitle2" color="text.secondary">
                   正解の英単語:
                 </Typography>
-                <Typography variant="h6" fontWeight={700}>
+                <Typography variant="h6" fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>
                   {word.word}
                 </Typography>
                 {word.phonetic && (
@@ -918,22 +986,22 @@ function QuizScreen({
                 )}
                 {feedbackSenses.map((sense, i) => (
                   <Stack key={i} spacing={0.25}>
-                    <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+                    <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
                       {sense.partOfSpeech && <Chip label={sense.partOfSpeech} size="small" />}
-                      <Typography fontWeight={600}>{sense.meaningJa}</Typography>
+                      <Typography fontWeight={600} sx={{ overflowWrap: 'anywhere' }}>{sense.meaningJa}</Typography>
                     </Stack>
                     {sense.meaningEn && (
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                         英語での意味: {sense.meaningEn}
                       </Typography>
                     )}
                     {sense.example && (
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                         例文: {sense.example}
                       </Typography>
                     )}
                     {sense.exampleJa && (
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                         （{sense.exampleJa}）
                       </Typography>
                     )}
@@ -942,12 +1010,12 @@ function QuizScreen({
               </Stack>
             )}
 
-            <Stack direction="row" spacing={1.25} useFlexGap sx={{ flexWrap: 'wrap' }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}>
               <Button
                 variant="contained"
                 endIcon={<ArrowForwardIcon />}
                 onClick={onNext}
-                sx={{ textTransform: 'none' }}
+                sx={{ textTransform: 'none', width: { xs: '100%', sm: 'auto' } }}
               >
                 {isLast ? '結果を見る (Enter)' : '次へ (Enter)'}
               </Button>
@@ -956,6 +1024,7 @@ function QuizScreen({
                 color="success"
                 startIcon={<DoneAllIcon />}
                 onClick={onMastered}
+                sx={{ width: { xs: '100%', sm: 'auto' } }}
               >
                 習得済みにする
               </Button>
@@ -995,7 +1064,7 @@ function ResultScreen({ total, score, wrongWords, durationMs, onRestart }) {
               {wrongWords.map((w) => (
                 <ListItem key={w.id} disablePadding sx={{ py: 0.25 }}>
                   <ListItemText
-                    primary={<Typography fontWeight={700}>{w.word}</Typography>}
+                    primary={<Typography fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>{w.word}</Typography>}
                     secondary={joinedMeaningJa(w)}
                   />
                 </ListItem>
