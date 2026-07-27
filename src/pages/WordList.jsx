@@ -37,6 +37,11 @@ import SaveIcon from '@mui/icons-material/Save'
 import CloseIcon from '@mui/icons-material/Close'
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
 import FilterAltOffIcon from '@mui/icons-material/FilterAltOff'
+import StarIcon from '@mui/icons-material/Star'
+import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
+import WarningAmberIcon from '@mui/icons-material/WarningAmber'
+import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive'
+import ScheduleIcon from '@mui/icons-material/Schedule'
 import Alert from '@mui/material/Alert'
 import { useWords } from '../hooks/useWords.js'
 import { DataErrorState, LoadingState } from '../components/LoadingState.jsx'
@@ -79,15 +84,19 @@ function formatDate(iso) {
   return d.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
-// 習熟度 0〜5 を星で表示
-function MasteryStars({ level }) {
+// 習熟度 0〜5 を星で表示。compact=true（スマホ用）は幅削減のため
+// 「★ + 数値」（例: ★1）にする。既定（PC表）は5つ星。
+function MasteryStars({ level, compact = false }) {
   const n = Math.max(0, Math.min(5, Number(level) || 0))
-  return (
-    <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', whiteSpace: 'nowrap' }}>
-      <Rating value={n} max={5} readOnly size="small" sx={{ color: '#e8a13c' }} />
-      <Chip label={`${n}/5`} size="small" />
-    </Stack>
-  )
+  if (compact) {
+    return (
+      <Stack direction="row" spacing={0.25} sx={{ alignItems: 'center', whiteSpace: 'nowrap' }}>
+        <StarIcon sx={{ fontSize: '1rem', color: '#e8a13c' }} />
+        <Typography variant="body2">{n}</Typography>
+      </Stack>
+    )
+  }
+  return <Rating value={n} max={5} readOnly size="small" sx={{ color: '#e8a13c' }} />
 }
 
 // 正答/誤答の表示（テーブル・カード共用）
@@ -105,23 +114,51 @@ function CorrectIncorrect({ word }) {
   )
 }
 
-function ReviewStatus({ word }) {
+// 復習状況の表示。icon=false（既定・スマホカード用）はテキストチップ、
+// icon=true（PC表の狭い列用）はアイコン＋ツールチップで最小幅にする。
+function ReviewStatus({ word, icon = false }) {
   const dueAt = word.srs?.dueAt
-  if (!dueAt) return <Chip label="未学習" size="small" variant="outlined" />
+  if (!dueAt) {
+    return icon ? (
+      <Tooltip title="未学習">
+        <RadioButtonUncheckedIcon fontSize="small" sx={{ color: 'text.disabled', display: 'block', mx: 'auto' }} />
+      </Tooltip>
+    ) : (
+      <Chip label="未学習" size="small" variant="outlined" />
+    )
+  }
 
   if (isDue(word)) {
     const today = toLocalDateKey(new Date().toISOString())
     const dueDate = toLocalDateKey(dueAt)
+    const overdue = dueDate < today
+    if (icon) {
+      return overdue ? (
+        <Tooltip title="期限超過">
+          <WarningAmberIcon fontSize="small" color="warning" sx={{ display: 'block', mx: 'auto' }} />
+        </Tooltip>
+      ) : (
+        <Tooltip title="今日復習">
+          <NotificationsActiveIcon fontSize="small" color="primary" sx={{ display: 'block', mx: 'auto' }} />
+        </Tooltip>
+      )
+    }
     return (
       <Chip
-        label={dueDate < today ? '期限超過' : '今日復習'}
+        label={overdue ? '期限超過' : '今日復習'}
         size="small"
-        color={dueDate < today ? 'warning' : 'primary'}
+        color={overdue ? 'warning' : 'primary'}
       />
     )
   }
 
-  return <Chip label={`次回 ${formatDate(dueAt)}`} size="small" variant="outlined" />
+  return icon ? (
+    <Tooltip title={`次回 ${formatDate(dueAt)}`}>
+      <ScheduleIcon fontSize="small" sx={{ color: 'text.secondary', display: 'block', mx: 'auto' }} />
+    </Tooltip>
+  ) : (
+    <Chip label={`次回 ${formatDate(dueAt)}`} size="small" variant="outlined" />
+  )
 }
 
 // 語義の一覧表示（品詞チップ＋和訳＋英語定義）。テーブル・カード共用。
@@ -158,7 +195,12 @@ function WordEditForm({
 }) {
   return (
     <>
-      <Box sx={{ ...editGridSx, mb: 1.5 }}>
+      {draft.addedAt && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'right'}}>
+          追加日: {formatDate(draft.addedAt)}
+        </Typography>
+      )}
+      <Box sx={{ ...editGridSx, mt: 0.5, mb: 1.5 }}>
         <TextField
           label="単語（必須）"
           size="small"
@@ -340,14 +382,9 @@ function WordCard({ word, onEdit, onDelete }) {
           gap={1}
           sx={{ flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', mt: 1.25 }}
         >
-          <MasteryStars level={word.masteryLevel} />
+          <MasteryStars level={word.masteryLevel} compact />
           <ReviewStatus word={word} />
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-            <CorrectIncorrect word={word} />
-            <Typography variant="caption" color="text.secondary">
-              {formatDate(word.addedAt)}
-            </Typography>
-          </Stack>
+          <CorrectIncorrect word={word} />
         </Stack>
       </CardContent>
     </Card>
@@ -433,6 +470,8 @@ export default function WordList() {
       phonetic: word.phonetic ?? '',
       cefr: word.cefr ?? '',
       categories: word.categories ?? [],
+      addedAt: word.addedAt ?? null, // 表示専用（編集不可）。保存時は元の値を保持する
+
       // 語義が1つも無い場合も編集しやすいよう空の語義行を1つ出す
       senses: senses.length > 0 ? senses : [createSense()],
     })
@@ -747,39 +786,53 @@ export default function WordList() {
               </Stack>
             ) : (
               <TableContainer sx={{ overflowX: 'auto' }}>
-                <Table size="small">
+                {/* 親幅を超えて操作列（削除ボタン）が隠れないよう、table-layout: fixed で
+                    列幅を固定し、意味列（幅指定なし）に残り幅を吸わせて折り返させる。 */}
+                <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
+                  <colgroup>
+                    <col style={{ width: 148 }} />
+                    <col />
+                    <col style={{ width: 140 }} />
+                    <col style={{ width: 60 }} />
+                    <col style={{ width: 48 }} />
+                    <col style={{ width: 96 }} />
+                  </colgroup>
                   <TableHead>
                     <TableRow>
                       <TableCell>単語</TableCell>
                       <TableCell>意味</TableCell>
                       <TableCell>習熟度</TableCell>
-                      <TableCell>正/誤</TableCell>
-                      <TableCell>復習</TableCell>
-                      <TableCell>追加日</TableCell>
-                      <TableCell></TableCell>
+                      <TableCell sx={{ px: 0.5 }}>正/誤</TableCell>
+                      <TableCell align="center" sx={{ px: 0.5 }}>復習</TableCell>
+                      <TableCell />
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {pagedWords.map((w) =>
                       w.id === editingId ? (
                         <TableRow key={w.id}>
-                          <TableCell colSpan={7} sx={{ bgcolor: 'action.hover' }}>
+                          <TableCell colSpan={6} sx={{ bgcolor: 'action.hover' }}>
                             <WordEditForm {...editFormProps} />
                           </TableCell>
                         </TableRow>
                       ) : (
                         <TableRow key={w.id} hover>
                           <TableCell>
-                            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}>
-                              <Typography fontWeight={600}>{w.word}</Typography>
-                              {w.cefr && <Chip label={w.cefr} size="small" color="primary" variant="outlined" />}
-                            </Stack>
-                            {/* phonetic は辞書API由来で既にスラッシュ付き（例: /rɪˈzɪliənt/） */}
-                            {w.phonetic && (
-                              <Typography variant="caption" color="text.secondary" display="block">
-                                {w.phonetic}
+                            {/* 英単語・発音記号・CEFR の3行。列は colgroup で固定幅。 */}
+                            <Stack spacing={0.25} sx={{ alignItems: 'flex-start' }}>
+                              <Typography fontWeight={600} sx={{ wordBreak: 'break-word' }}>
+                                {w.word}
                               </Typography>
-                            )}
+                              {/* phonetic は辞書API由来で既にスラッシュ付き（例: /rɪˈzɪliənt/） */}
+                              {w.phonetic && (
+                                <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+                                  {w.phonetic}
+                                </Typography>
+                              )}
+                              {w.cefr && (
+                                <Chip label={w.cefr} size="small" color="primary" variant="outlined" />
+                              )}
+                            </Stack>
                           </TableCell>
                           <TableCell>
                             <SenseLines senses={w.senses} />
@@ -794,15 +847,14 @@ export default function WordList() {
                           <TableCell>
                             <MasteryStars level={w.masteryLevel} />
                           </TableCell>
-                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                          <TableCell sx={{ whiteSpace: 'nowrap', px: 0.5 }}>
                             <CorrectIncorrect word={w} />
                           </TableCell>
-                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                            <ReviewStatus word={w} />
+                          <TableCell align="center" sx={{ px: 0.5 }}>
+                            <ReviewStatus word={w} icon />
                           </TableCell>
-                          <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(w.addedAt)}</TableCell>
-                          <TableCell>
-                            <Stack direction="row" spacing={0.5}>
+                          <TableCell sx={{ px: 0.5 }}>
+                            <Stack direction="row" spacing={0.25}>
                               <Tooltip title="編集">
                                 <IconButton size="small" onClick={() => startEdit(w)}>
                                   <EditIcon fontSize="small" />
