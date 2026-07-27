@@ -37,6 +37,7 @@ import HistoryIcon from '@mui/icons-material/History'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { useWords } from '../hooks/useWords.js'
 import { useTestSessions } from '../hooks/useTestSessions.js'
+import { useFlashcardSessions } from '../hooks/useFlashcardSessions.js'
 import { useSettings } from '../hooks/useSettings.js'
 import { useWeeklyLeaderboard } from '../hooks/useLeaderboard.js'
 import { DataErrorState, LoadingState } from '../components/LoadingState.jsx'
@@ -89,6 +90,7 @@ export default function Dashboard() {
   const { user } = useAuth()
   const { words, isLoading: wordsLoading, error: wordsError } = useWords()
   const { sessions, isLoading: sessionsLoading, error: sessionsError } = useTestSessions()
+  const { sessions: flashcardSessions, isLoading: flashcardLoading } = useFlashcardSessions()
   const {
     settings,
     updateSettings,
@@ -104,10 +106,17 @@ export default function Dashboard() {
   )
   const weeklyChallengeCompleted = isWeeklyChallengeCompleted(weeklyQuestionCount)
 
+  // ストリークと学習カレンダーは「学習した日」なのでテスト＋暗記カードを合流させる。
+  // 一方、正答率・総数（calcSummary）とデイリーゴールの問題数（calcTodayProgress）は
+  // 採点回答のみを対象にするため sessions（テスト）だけを使う。
+  const learnedSessions = useMemo(
+    () => [...sessions, ...flashcardSessions],
+    [sessions, flashcardSessions],
+  )
   const summary = useMemo(() => calcSummary(words, sessions), [words, sessions])
-  const streak = useMemo(() => calcStreak(sessions), [sessions])
+  const streak = useMemo(() => calcStreak(learnedSessions), [learnedSessions])
   const distribution = useMemo(() => calcMasteryDistribution(words), [words])
-  const calendar = useMemo(() => buildActivityCalendar(sessions), [sessions])
+  const calendar = useMemo(() => buildActivityCalendar(learnedSessions), [learnedSessions])
   const todayProgress = useMemo(() => calcTodayProgress(words, sessions), [words, sessions])
   const reviewCount = useMemo(() => words.filter((word) => isDue(word)).length, [words])
   const unlearnedCount = useMemo(
@@ -132,7 +141,7 @@ export default function Dashboard() {
   const hasWords = summary.totalWords > 0
   const hasTests = summary.totalTests > 0
 
-  if (wordsLoading || sessionsLoading || settingsLoading) return <LoadingState />
+  if (wordsLoading || sessionsLoading || flashcardLoading || settingsLoading) return <LoadingState />
   if (wordsError || sessionsError || settingsError) return <DataErrorState />
 
   return (

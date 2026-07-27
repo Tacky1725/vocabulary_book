@@ -14,6 +14,7 @@ const LEGACY_SESSIONS_KEY = 'vocab-app:test-sessions'
 // （kind='words' は従来キー `vocab-app:words:{uid}` と一致し後方互換）。
 const entriesMirrorKey = (uid, kind) => `vocab-app:${kind}:${uid}`
 const sessionsMirrorKey = (uid) => `vocab-app:test-sessions:${uid}`
+const flashcardSessionsMirrorKey = (uid) => `vocab-app:flashcard-sessions:${uid}`
 const settingsMirrorKey = (uid) => `vocab-app:settings:${uid}`
 
 function loadJson(key, fallback) {
@@ -127,6 +128,11 @@ export function loadLegacyTestSessions() {
 
 export function saveTestSessionsMirror(uid, sessions) {
   saveJson(sessionsMirrorKey(uid), sessions)
+}
+
+// 暗記カード実施履歴のミラー保存（クラウド障害時の保険）。
+export function saveFlashcardSessionsMirror(uid, sessions) {
+  saveJson(flashcardSessionsMirrorKey(uid), sessions)
 }
 
 // ---- ユーザー設定（meta/settings のミラー） ----

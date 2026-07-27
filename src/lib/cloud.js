@@ -22,6 +22,7 @@ import { loadLegacyTestSessions, loadLegacyWords, normalizeWord } from './storag
 const entriesCol = (uid, kind) => collection(db, 'users', uid, kind)
 const wordsCol = (uid) => entriesCol(uid, 'words')
 const sessionsDoc = (uid) => doc(db, 'users', uid, 'meta', 'testSessions')
+const flashcardSessionsDoc = (uid) => doc(db, 'users', uid, 'meta', 'flashcardSessions')
 const settingsDoc = (uid) => doc(db, 'users', uid, 'meta', 'settings')
 
 // Firestore のコレクションに固有の順序はないため、追加日時（同時刻は id）で表示順を安定させる。
@@ -125,6 +126,34 @@ export async function recordTestSession(uid, { total, correct, durationMs, kind 
   } catch (e) {
     console.error('テスト履歴の保存に失敗しました', e)
     return { ok: false, error: 'テスト履歴の保存に失敗しました' }
+  }
+}
+
+// ---- 暗記カード実施履歴（meta/flashcardSessions） ----
+// テスト履歴とは別ドキュメント。自己申告なので正誤ではなく known（覚えた数）を持つ。
+// { sessions: [{ date, kind, direction, total, known }] }、追記は arrayUnion。
+export function subscribeFlashcardSessions(uid, onChange, onError) {
+  return onSnapshot(
+    flashcardSessionsDoc(uid),
+    (snap) => {
+      const data = snap.data()
+      onChange(Array.isArray(data?.sessions) ? data.sessions : [])
+    },
+    (err) => {
+      console.error('暗記カード履歴の購読に失敗しました', err)
+      onError?.(err)
+    },
+  )
+}
+
+export async function recordFlashcardSession(uid, { kind, direction, total, known }) {
+  try {
+    const session = { date: new Date().toISOString(), kind, direction, total, known }
+    await setDoc(flashcardSessionsDoc(uid), { sessions: arrayUnion(session) }, { merge: true })
+    return { ok: true }
+  } catch (e) {
+    console.error('暗記カード履歴の保存に失敗しました', e)
+    return { ok: false, error: '暗記カード履歴の保存に失敗しました' }
   }
 }
 
