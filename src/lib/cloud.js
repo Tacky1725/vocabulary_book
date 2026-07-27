@@ -108,12 +108,14 @@ export function subscribeTestSessions(uid, onChange, onError) {
   )
 }
 
-export async function recordTestSession(uid, { total, correct, durationMs }) {
+export async function recordTestSession(uid, { total, correct, durationMs, kind }) {
   try {
     const session = { date: new Date().toISOString(), total, correct }
     if (Number.isFinite(durationMs) && durationMs >= 0) {
       session.durationMs = Math.round(durationMs)
     }
+    // 熟語テストのみ kind を付ける。単語は従来どおり kind 無し（欠落＝単語扱い）で後方互換。
+    if (kind === 'idioms') session.kind = 'idioms'
     await setDoc(
       sessionsDoc(uid),
       { sessions: arrayUnion(session) },

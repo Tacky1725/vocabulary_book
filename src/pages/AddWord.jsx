@@ -21,7 +21,8 @@ import SearchIcon from '@mui/icons-material/Search'
 import AddIcon from '@mui/icons-material/Add'
 import TranslateIcon from '@mui/icons-material/Translate'
 import UploadFileIcon from '@mui/icons-material/UploadFile'
-import { useWords } from '../hooks/useWords.js'
+import { useEntries } from '../hooks/useEntries.js'
+import { useEntryKind, entryKindLabel } from '../hooks/useEntryKind.js'
 import { createWordEntry } from '../lib/storage.js'
 import { createSense } from '../lib/senses.js'
 import { fetchDictionaryEntry, fetchJapaneseTranslation } from '../lib/api.js'
@@ -31,7 +32,11 @@ import { lookupCefr, lookupCefrMany } from '../lib/cefr.js'
 import { DataErrorState, LoadingState } from '../components/LoadingState.jsx'
 
 export default function AddWord() {
-  const { words, updateWords, isLoading, error } = useWords()
+  // kind は一覧の「追加」ボタンが付ける URL クエリ ?kind=idiom から読む（追加画面自体に切替UIは持たない）。
+  const [kind] = useEntryKind()
+  const isIdiom = kind === 'idioms'
+  const unit = entryKindLabel(kind) // '単語' | '熟語'
+  const { entries: words, updateEntries: updateWords, isLoading, error } = useEntries(kind)
   const [tab, setTab] = useState('search')
 
   if (isLoading) return <LoadingState />
@@ -41,16 +46,16 @@ export default function AddWord() {
     <Card>
       <CardContent>
         <Typography variant="h5" component="h2" gutterBottom>
-          単語追加
+          {unit}追加
         </Typography>
         <Tabs value={tab} onChange={(e, v) => setTab(v)} sx={{ mb: 2 }}>
-          <Tab label="単語検索で追加" value="search" />
+          <Tab label={isIdiom ? '熟語を入力して追加' : '単語検索で追加'} value="search" />
           <Tab label="CSV一括追加" value="csv" />
         </Tabs>
         {tab === 'search' ? (
-          <SearchTab words={words} updateWords={updateWords} />
+          <SearchTab words={words} updateWords={updateWords} isIdiom={isIdiom} unit={unit} />
         ) : (
-          <CsvTab words={words} updateWords={updateWords} />
+          <CsvTab words={words} updateWords={updateWords} isIdiom={isIdiom} unit={unit} />
         )}
       </CardContent>
     </Card>
@@ -75,7 +80,7 @@ const gridSx = {
   gap: 2,
 }
 
-function SearchTab({ words, updateWords }) {
+function SearchTab({ words, updateWords, isIdiom, unit }) {
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
   // form: null = プレビュー非表示 / { word, phonetic, cefr, categories, senses: [語義行] }
@@ -95,6 +100,19 @@ function SearchTab({ words, updateWords }) {
     setSuccessMessage('')
     setDuplicate(null)
     setApiErrors([])
+
+    // 熟語モード: 辞書API・CEFR判定は使わず、全体訳を一回だけ取得して先頭語義に入れる。
+    // 語義個別の翻訳は各行の「訳す」ボタンでオンデマンド実行する。
+    if (isIdiom) {
+      const transResult = await fetchJapaneseTranslation(q)
+      const senseRows = [
+        createSenseRow(transResult.ok ? { meaningJa: transResult.data } : {}, true),
+      ]
+      setForm({ word: q, phonetic: '', cefr: '', categories: [], senses: senseRows })
+      setApiErrors(transResult.ok ? [] : [transResult.error])
+      setLoading(false)
+      return
+    }
 
     // CEFR判定はバンドル済み静的データのローカル参照なのでAPI負荷はかからない
     const [dictResult, transResult, cefr] = await Promise.all([
@@ -189,7 +207,7 @@ function SearchTab({ words, updateWords }) {
   }
 
   function finishAdd(word, message) {
-    setSuccessMessage(message ?? `「${word}」を単語帳に追加しました`)
+    setSuccessMessage(message ?? `「${word}」を追加しました`)
     setForm(null)
     setQuery('')
     setApiErrors([])
@@ -261,8 +279,8 @@ function SearchTab({ words, updateWords }) {
           size="small"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="追加したい英単語を入力（例: resilient）"
-          aria-label="検索する英単語"
+          placeholder={isIdiom ? '追加したい熟語を入力（例: look forward to）' : '追加したい英単語を入力（例: resilient）'}
+          aria-label={isIdiom ? '追加する熟語' : '検索する英単語'}
         />
         <Button
           type="submit"
@@ -271,13 +289,13 @@ function SearchTab({ words, updateWords }) {
           disabled={loading || !query.trim()}
           sx={{ flexShrink: 0 }}
         >
-          {loading ? '検索中…' : '検索'}
+          {loading ? (isIdiom ? '取得中…' : '検索中…') : isIdiom ? '訳を取得' : '検索'}
         </Button>
       </Stack>
 
       {loading && (
         <Typography color="text.secondary" sx={{ mb: 1 }}>
-          辞書と翻訳を取得しています…
+          {isIdiom ? '翻訳を取得しています…' : '辞書と翻訳を取得しています…'}
         </Typography>
       )}
 
@@ -299,42 +317,49 @@ function SearchTab({ words, updateWords }) {
           </Typography>
           <Box sx={{ ...gridSx, mb: 2 }}>
             <TextField
-              label="単語 *"
+              label={`${unit} *`}
               value={form.word}
               onChange={(e) => handleFieldChange('word', e.target.value)}
             />
-            <TextField
-              label="発音記号"
-              value={form.phonetic}
-              onChange={(e) => handleFieldChange('phonetic', e.target.value)}
-            />
-            <FormControl size="small">
-              <InputLabel id="cefr-select-label">CEFR</InputLabel>
-              <Select
-                labelId="cefr-select-label"
-                label="CEFR"
-                value={form.cefr}
-                onChange={(e) => handleFieldChange('cefr', e.target.value)}
-              >
-                <MenuItem value="">未設定</MenuItem>
-                {CEFR_LEVELS.map((level) => (
-                  <MenuItem key={level} value={level}>
-                    {level}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <Autocomplete
-              multiple
-              freeSolo
-              size="small"
-              options={knownCategories}
-              value={form.categories}
-              onChange={(e, newValue) => handleFieldChange('categories', normalizeCategories(newValue))}
-              renderInput={(params) => (
-                <TextField {...params} label="カテゴリ" placeholder="タグを追加" />
-              )}
-            />
+            {/* 発音記号・CEFR・カテゴリは単語専用（熟語モードでは非表示） */}
+            {!isIdiom && (
+              <TextField
+                label="発音記号"
+                value={form.phonetic}
+                onChange={(e) => handleFieldChange('phonetic', e.target.value)}
+              />
+            )}
+            {!isIdiom && (
+              <FormControl size="small">
+                <InputLabel id="cefr-select-label">CEFR</InputLabel>
+                <Select
+                  labelId="cefr-select-label"
+                  label="CEFR"
+                  value={form.cefr}
+                  onChange={(e) => handleFieldChange('cefr', e.target.value)}
+                >
+                  <MenuItem value="">未設定</MenuItem>
+                  {CEFR_LEVELS.map((level) => (
+                    <MenuItem key={level} value={level}>
+                      {level}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+            {!isIdiom && (
+              <Autocomplete
+                multiple
+                freeSolo
+                size="small"
+                options={knownCategories}
+                value={form.categories}
+                onChange={(e, newValue) => handleFieldChange('categories', normalizeCategories(newValue))}
+                renderInput={(params) => (
+                  <TextField {...params} label="カテゴリ" placeholder="タグを追加" />
+                )}
+              />
+            )}
           </Box>
 
           <Box sx={{ mb: 2 }}>
@@ -482,13 +507,13 @@ function SearchTab({ words, updateWords }) {
                 </Stack>
               }
             >
-              「{duplicate.word}」はすでに単語帳に登録されています。内容を上書きしますか？
+              「{duplicate.word}」はすでに登録されています。内容を上書きしますか？
               （学習記録は保持されます）
             </Alert>
           ) : (
             <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
               <Button variant="contained" onClick={handleAdd} disabled={!form.word.trim()}>
-                単語帳に追加
+                {unit}に追加
               </Button>
               <Typography color="text.secondary">選択中の語義: {checkedCount}件</Typography>
             </Stack>
@@ -507,7 +532,7 @@ function SearchTab({ words, updateWords }) {
 
 // ---- タブ2: CSV一括追加 ----
 
-function CsvTab({ words, updateWords }) {
+function CsvTab({ words, updateWords, isIdiom, unit }) {
   const [result, setResult] = useState(null) // { added, skipped } | null
   const [error, setError] = useState('')
 
@@ -544,16 +569,21 @@ function CsvTab({ words, updateWords }) {
     const toImport = entries.filter((entry) => !existing.has(entry.word.trim().toLowerCase()))
     const skipped = entries.length - toImport.length
 
-    // CSV に cefr が明示されている行はそれを尊重し、空欄の行だけ自動判定で補う
-    const guessedCefr = await lookupCefrMany(toImport.map((entry) => entry.word))
+    // CSV に cefr が明示されている行はそれを尊重し、空欄の行だけ自動判定で補う（単語のみ）。
+    // 熟語は CEFR・カテゴリを持たないので判定せず、見出し語と語義だけ取り込む。
+    const guessedCefr = isIdiom ? [] : await lookupCefrMany(toImport.map((entry) => entry.word))
     const newEntries = toImport.map((entry, i) =>
-      createWordEntry({
-        word: entry.word,
-        phonetic: entry.phonetic,
-        cefr: entry.cefr || guessedCefr[i],
-        categories: entry.categories,
-        senses: entry.senses,
-      }),
+      createWordEntry(
+        isIdiom
+          ? { word: entry.word, senses: entry.senses }
+          : {
+              word: entry.word,
+              phonetic: entry.phonetic,
+              cefr: entry.cefr || guessedCefr[i],
+              categories: entry.categories,
+              senses: entry.senses,
+            },
+      ),
     )
 
     if (newEntries.length > 0) {
@@ -565,9 +595,10 @@ function CsvTab({ words, updateWords }) {
   return (
     <Box>
       <Typography color="text.secondary" sx={{ mb: 2 }}>
-        ヘッダー付きCSVファイルをアップロードすると、まとめて単語帳に追加できます。
+        ヘッダー付きCSVファイルをアップロードすると、まとめて{unit}を追加できます。
         辞書APIへの照会は行わず、CSVの内容がそのまま登録されます。
-        単語帳アプリ「DiQt」が配布するCSV（headword/pos/entry/ipa等の列を持つ形式）もそのまま読み込めます。
+        {!isIdiom &&
+          '単語帳アプリ「DiQt」が配布するCSV（headword/pos/entry/ipa等の列を持つ形式）もそのまま読み込めます。'}
       </Typography>
       <Box sx={{ mb: 2 }}>
         <Typography color="text.secondary" sx={{ mb: 0.5 }}>
@@ -592,9 +623,13 @@ bank,a financial institution,銀行,/bæŋk/,noun,I went to the bank.
 bank,the land alongside a river,土手,/bæŋk/,noun,We walked along the bank.`}
         </Box>
         <Typography color="text.secondary">
-          1行=1語義。同じ word の行は1つの単語にまとめて登録されます（上の例は「bank」1語に語義2件）。
-          任意で cefr（A1〜C2）・categories（タグを「;」区切りで複数指定）の列も追加できます。
-          cefr が空欄の行は登録時に自動判定を試みます（収録外の単語は未設定のままになります）。
+          1行=1語義。同じ word の行は1つの{unit}にまとめて登録されます（上の例は「bank」1語に語義2件）。
+          {!isIdiom && (
+            <>
+              任意で cefr（A1〜C2）・categories（タグを「;」区切りで複数指定）の列も追加できます。
+              cefr が空欄の行は登録時に自動判定を試みます（収録外の単語は未設定のままになります）。
+            </>
+          )}
         </Typography>
       </Box>
 

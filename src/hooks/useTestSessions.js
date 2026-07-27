@@ -67,8 +67,8 @@ export function useTestSessions() {
 
   // fire-and-forget（オフライン時は SDK がキュー保持し再接続時に送信）
   const recordTestSession = useCallback(
-    ({ total, correct, durationMs }) => {
-      if (uid) recordToCloud(uid, { total, correct, durationMs })
+    ({ total, correct, durationMs, kind }) => {
+      if (uid) recordToCloud(uid, { total, correct, durationMs, kind })
     },
     [uid]
   )

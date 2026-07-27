@@ -20,6 +20,8 @@ import Chip from '@mui/material/Chip'
 import Checkbox from '@mui/material/Checkbox'
 import ListItemText from '@mui/material/ListItemText'
 import Pagination from '@mui/material/Pagination'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Table from '@mui/material/Table'
 import TableHead from '@mui/material/TableHead'
 import TableBody from '@mui/material/TableBody'
@@ -43,7 +45,8 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive'
 import ScheduleIcon from '@mui/icons-material/Schedule'
 import Alert from '@mui/material/Alert'
-import { useWords } from '../hooks/useWords.js'
+import { useEntries } from '../hooks/useEntries.js'
+import { useEntryKind, entryKindSearch, entryKindLabel } from '../hooks/useEntryKind.js'
 import { DataErrorState, LoadingState } from '../components/LoadingState.jsx'
 import { wordsToCsv, wordsToDiqtCsv, downloadCsv } from '../lib/csv.js'
 import { createSense, hasSenseContent } from '../lib/senses.js'
@@ -192,6 +195,7 @@ function WordEditForm({
   addDraftSense,
   removeDraftSense,
   knownCategories,
+  isIdiom = false,
 }) {
   return (
     <>
@@ -202,45 +206,52 @@ function WordEditForm({
       )}
       <Box sx={{ ...editGridSx, mt: 0.5, mb: 1.5 }}>
         <TextField
-          label="単語（必須）"
+          label={isIdiom ? '熟語（必須）' : '単語（必須）'}
           size="small"
           value={draft.word}
           onChange={(e) => setDraft({ ...draft, word: e.target.value })}
         />
-        <TextField
-          label="発音記号"
-          size="small"
-          value={draft.phonetic}
-          onChange={(e) => setDraft({ ...draft, phonetic: e.target.value })}
-        />
-        <FormControl size="small">
-          <InputLabel id="edit-cefr-select-label">CEFR</InputLabel>
-          <Select
-            labelId="edit-cefr-select-label"
-            label="CEFR"
-            value={draft.cefr}
-            onChange={(e) => setDraft({ ...draft, cefr: e.target.value })}
-          >
-            <MenuItem value="">未設定</MenuItem>
-            {CEFR_LEVELS.map((level) => (
-              <MenuItem key={level} value={level}>
-                {level}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <Autocomplete
-          multiple
-          freeSolo
-          size="small"
-          options={knownCategories}
-          value={draft.categories}
-          onChange={(e, newValue) => setDraft({ ...draft, categories: normalizeCategories(newValue) })}
-          renderInput={(params) => (
-            <TextField {...params} label="カテゴリ" placeholder="タグを追加" />
-          )}
-          sx={{ gridColumn: '1 / -1' }}
-        />
+        {/* 発音記号・CEFR・カテゴリは単語専用（熟語モードでは非表示） */}
+        {!isIdiom && (
+          <TextField
+            label="発音記号"
+            size="small"
+            value={draft.phonetic}
+            onChange={(e) => setDraft({ ...draft, phonetic: e.target.value })}
+          />
+        )}
+        {!isIdiom && (
+          <FormControl size="small">
+            <InputLabel id="edit-cefr-select-label">CEFR</InputLabel>
+            <Select
+              labelId="edit-cefr-select-label"
+              label="CEFR"
+              value={draft.cefr}
+              onChange={(e) => setDraft({ ...draft, cefr: e.target.value })}
+            >
+              <MenuItem value="">未設定</MenuItem>
+              {CEFR_LEVELS.map((level) => (
+                <MenuItem key={level} value={level}>
+                  {level}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
+        {!isIdiom && (
+          <Autocomplete
+            multiple
+            freeSolo
+            size="small"
+            options={knownCategories}
+            value={draft.categories}
+            onChange={(e, newValue) => setDraft({ ...draft, categories: normalizeCategories(newValue) })}
+            renderInput={(params) => (
+              <TextField {...params} label="カテゴリ" placeholder="タグを追加" />
+            )}
+            sx={{ gridColumn: '1 / -1' }}
+          />
+        )}
       </Box>
       <Stack spacing={1.5} sx={{ mb: 1.5 }}>
         <Typography variant="body2" color="text.secondary">
@@ -335,7 +346,7 @@ function WordEditForm({
 }
 
 // スマホ用: 1単語=1カード
-function WordCard({ word, onEdit, onDelete }) {
+function WordCard({ word, isIdiom = false, onEdit, onDelete }) {
   return (
     <Card variant="outlined">
       <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
@@ -345,15 +356,16 @@ function WordCard({ word, onEdit, onDelete }) {
               <Typography fontWeight={600} sx={{ wordBreak: 'break-word' }}>
                 {word.word}
               </Typography>
-              {word.cefr && <Chip label={word.cefr} size="small" color="primary" variant="outlined" />}
+              {/* 発音記号・CEFR・カテゴリは単語専用（熟語モードでは非表示） */}
+              {!isIdiom && word.cefr && <Chip label={word.cefr} size="small" color="primary" variant="outlined" />}
             </Stack>
             {/* phonetic は辞書API由来で既にスラッシュ付き（例: /rɪˈzɪliənt/） */}
-            {word.phonetic && (
-              <Typography variant="caption" color="text.secondary" display="block">
+            {!isIdiom && word.phonetic && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                 {word.phonetic}
               </Typography>
             )}
-            {word.categories?.length > 0 && (
+            {!isIdiom && word.categories?.length > 0 && (
               <Stack direction="row" gap={0.5} sx={{ flexWrap: 'wrap', mt: 0.5 }}>
                 {word.categories.map((tag) => (
                   <Chip key={tag} label={tag} size="small" />
@@ -392,7 +404,11 @@ function WordCard({ word, onEdit, onDelete }) {
 }
 
 export default function WordList() {
-  const { words, updateWords, isLoading, error } = useWords()
+  const [kind, setKind] = useEntryKind()
+  const isIdiom = kind === 'idioms'
+  const unit = entryKindLabel(kind) // '単語' | '熟語'
+  // データ層は kind でコレクションを切り替える。以降は従来どおり words/updateWords 名で扱う。
+  const { entries: words, updateEntries: updateWords, isLoading, error } = useEntries(kind)
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const [query, setQuery] = useState('')
@@ -423,10 +439,11 @@ export default function WordList() {
       })
       : words.slice()
 
-    if (cefrFilter.length > 0) {
+    // CEFR・カテゴリは単語専用。熟語モードでは絞り込みUIを隠すので適用もしない。
+    if (!isIdiom && cefrFilter.length > 0) {
       filtered = filtered.filter((w) => cefrFilter.includes(w.cefr || CEFR_UNSET))
     }
-    if (categoryFilter.length > 0) {
+    if (!isIdiom && categoryFilter.length > 0) {
       const wanted = categoryFilter.map((t) => t.toLowerCase())
       filtered = filtered.filter((w) =>
         (w.categories ?? []).some((tag) => wanted.includes(tag.toLowerCase())),
@@ -453,7 +470,7 @@ export default function WordList() {
         break
     }
     return filtered
-  }, [words, deferredQuery, sortKey, cefrFilter, categoryFilter])
+  }, [words, deferredQuery, sortKey, cefrFilter, categoryFilter, isIdiom])
 
   const totalPages = Math.max(1, Math.ceil(visibleWords.length / PAGE_SIZE))
   // 削除等でtotalPagesが縮んでも古いpage番号のまま空表示にならないよう、描画のたびにclampする
@@ -535,7 +552,7 @@ export default function WordList() {
   }
 
   const handleExport = () => {
-    downloadCsv(wordsToCsv(words), 'vocab-book.csv')
+    downloadCsv(wordsToCsv(words), isIdiom ? 'idioms.csv' : 'vocab-book.csv')
   }
 
   const handleExportDiqt = () => {
@@ -559,8 +576,9 @@ export default function WordList() {
     setBulkCefrResult({ judged: cefrById.size, total: targets.length })
   }
 
-  const isFiltering = query.trim() !== '' || cefrFilter.length > 0 || categoryFilter.length > 0
-  const isFilteringRange = cefrFilter.length > 0 || categoryFilter.length > 0
+  // 熟語モードでは CEFR・カテゴリ絞り込みを適用しないので、判定からも除外する
+  const isFilteringRange = !isIdiom && (cefrFilter.length > 0 || categoryFilter.length > 0)
+  const isFiltering = query.trim() !== '' || isFilteringRange
 
   // 編集フォームに渡す共通 props（テーブル・カードで同じフォームを使う）
   const editFormProps = {
@@ -573,6 +591,7 @@ export default function WordList() {
     addDraftSense,
     removeDraftSense,
     knownCategories,
+    isIdiom,
   }
 
   if (isLoading) return <LoadingState />
@@ -581,24 +600,41 @@ export default function WordList() {
   return (
     <Card>
       <CardContent>
+        {/* 単語/熟語の切り替え（URLクエリ ?kind=idiom）。追加・テストへも kind を引き継ぐ。 */}
+        <ToggleButtonGroup
+          value={kind}
+          exclusive
+          size="small"
+          onChange={(e, next) => {
+            if (next) {
+              setKind(next)
+              setPage(1)
+            }
+          }}
+          sx={{ mb: 1.5 }}
+        >
+          <ToggleButton value="words">単語</ToggleButton>
+          <ToggleButton value="idioms">熟語</ToggleButton>
+        </ToggleButtonGroup>
+
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
           gap={1}
           sx={{ justifyContent: 'space-between', alignItems: { xs: 'stretch', sm: 'center' }, mb: 1 }}
         >
           <Typography variant="h5" component="h2">
-            単語一覧
+            {unit}一覧
           </Typography>
           <Stack direction="row" spacing={1} gap={1} sx={{ flexWrap: 'wrap' }}>
             <Button
               component={RouterLink}
-              to="/add"
+              to={`/add${entryKindSearch(kind)}`}
               variant="contained"
               size="small"
               startIcon={<AddIcon />}
               sx={{ flex: { xs: 1, sm: 'initial' } }}
             >
-              単語を追加
+              {unit}を追加
             </Button>
             <Button
               variant="outlined"
@@ -610,26 +646,31 @@ export default function WordList() {
             >
               CSV出力
             </Button>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<FileDownloadIcon />}
-              onClick={handleExportDiqt}
-              disabled={words.length === 0}
-              sx={{ textTransform: 'none', flex: { xs: 1, sm: 'initial' } }}
-            >
-              DiQt形式で出力
-            </Button>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<AutoAwesomeIcon />}
-              onClick={handleBulkCefr}
-              disabled={words.length === 0 || bulkCefrRunning}
-              sx={{ flex: { xs: 1, sm: 'initial' } }}
-            >
-              {bulkCefrRunning ? '判定中…' : 'CEFR一括判定'}
-            </Button>
+            {/* DiQt形式・CEFR一括判定は単語専用（熟語モードでは非表示） */}
+            {!isIdiom && (
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<FileDownloadIcon />}
+                onClick={handleExportDiqt}
+                disabled={words.length === 0}
+                sx={{ textTransform: 'none', flex: { xs: 1, sm: 'initial' } }}
+              >
+                DiQt形式で出力
+              </Button>
+            )}
+            {!isIdiom && (
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<AutoAwesomeIcon />}
+                onClick={handleBulkCefr}
+                disabled={words.length === 0 || bulkCefrRunning}
+                sx={{ flex: { xs: 1, sm: 'initial' } }}
+              >
+                {bulkCefrRunning ? '判定中…' : 'CEFR一括判定'}
+              </Button>
+            )}
           </Stack>
         </Stack>
 
@@ -643,9 +684,9 @@ export default function WordList() {
 
         {words.length === 0 ? (
           <Typography color="text.secondary">
-            単語がまだ登録されていません。
-            <Link component={RouterLink} to="/add" sx={{ ml: 0.5 }}>
-              単語追加ページ
+            {unit}がまだ登録されていません。
+            <Link component={RouterLink} to={`/add${entryKindSearch(kind)}`} sx={{ ml: 0.5 }}>
+              {unit}追加ページ
             </Link>
             から登録してください。
           </Typography>
@@ -659,13 +700,13 @@ export default function WordList() {
               <TextField
                 type="search"
                 size="small"
-                placeholder="単語・意味で検索"
+                placeholder={`${unit}・意味で検索`}
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value)
                   setPage(1)
                 }}
-                aria-label="単語・意味で検索"
+                aria-label={`${unit}・意味で検索`}
                 sx={{ flex: { xs: '1 1 auto', sm: '1 1 220px' }, maxWidth: { sm: 320 } }}
                 slotProps={{
                   input: {
@@ -690,71 +731,78 @@ export default function WordList() {
                   </MenuItem>
                 ))}
               </Select>
-              <Select
-                multiple
-                value={cefrFilter}
-                size="small"
-                displayEmpty
-                onChange={(e) => {
-                  const value = e.target.value
-                  // Excelの絞り込みと同様、「すべて選択」がクリックされた行だけ特別扱いする
-                  // （全選択中の解除／一部選択中や未選択からの全選択をトグルする）。
-                  if (value[value.length - 1] === CEFR_SELECT_ALL) {
-                    setCefrFilter(cefrFilter.length === CEFR_FILTER_OPTIONS.length ? [] : CEFR_FILTER_OPTIONS)
-                  } else {
-                    setCefrFilter(value)
+              {/* CEFR・カテゴリ絞り込みは単語専用（熟語モードでは非表示） */}
+              {!isIdiom && (
+                <Select
+                  multiple
+                  value={cefrFilter}
+                  size="small"
+                  displayEmpty
+                  onChange={(e) => {
+                    const value = e.target.value
+                    // Excelの絞り込みと同様、「すべて選択」がクリックされた行だけ特別扱いする
+                    // （全選択中の解除／一部選択中や未選択からの全選択をトグルする）。
+                    if (value[value.length - 1] === CEFR_SELECT_ALL) {
+                      setCefrFilter(cefrFilter.length === CEFR_FILTER_OPTIONS.length ? [] : CEFR_FILTER_OPTIONS)
+                    } else {
+                      setCefrFilter(value)
+                    }
+                    setPage(1)
+                  }}
+                  renderValue={(selected) =>
+                    selected.length === 0 || selected.length === CEFR_FILTER_OPTIONS.length
+                      ? 'CEFR: すべて'
+                      : selected.map((v) => (v === CEFR_UNSET ? '未登録' : v)).join(', ')
                   }
-                  setPage(1)
-                }}
-                renderValue={(selected) =>
-                  selected.length === 0 || selected.length === CEFR_FILTER_OPTIONS.length
-                    ? 'CEFR: すべて'
-                    : selected.map((v) => (v === CEFR_UNSET ? '未登録' : v)).join(', ')
-                }
-                inputProps={{ 'aria-label': 'CEFRで絞り込み' }}
-                sx={{ minWidth: 160 }}
-              >
-                <MenuItem value={CEFR_SELECT_ALL}>
-                  <Checkbox
-                    size="small"
-                    checked={cefrFilter.length === CEFR_FILTER_OPTIONS.length}
-                    indeterminate={cefrFilter.length > 0 && cefrFilter.length < CEFR_FILTER_OPTIONS.length}
-                  />
-                  <ListItemText primary="すべて選択" />
-                </MenuItem>
-                {CEFR_FILTER_OPTIONS.map((level) => (
-                  <MenuItem key={level} value={level}>
-                    <Checkbox size="small" checked={cefrFilter.includes(level)} />
-                    <ListItemText primary={level === CEFR_UNSET ? '未登録' : level} />
+                  inputProps={{ 'aria-label': 'CEFRで絞り込み' }}
+                  sx={{ minWidth: 160 }}
+                >
+                  <MenuItem value={CEFR_SELECT_ALL}>
+                    <Checkbox
+                      size="small"
+                      checked={cefrFilter.length === CEFR_FILTER_OPTIONS.length}
+                      indeterminate={cefrFilter.length > 0 && cefrFilter.length < CEFR_FILTER_OPTIONS.length}
+                    />
+                    <ListItemText primary="すべて選択" />
                   </MenuItem>
-                ))}
-              </Select>
-              <Autocomplete
-                multiple
-                size="small"
-                options={knownCategories}
-                value={categoryFilter}
-                onChange={(e, newValue) => {
-                  setCategoryFilter(newValue)
-                  setPage(1)
-                }}
-                sx={{ minWidth: 200, flex: { sm: '1 1 220px' }, maxWidth: { sm: 320 } }}
-                renderInput={(params) => (
-                  <TextField {...params} label="カテゴリで絞り込み" />
-                )}
-              />
-              <Button
-                size="small"
-                startIcon={<FilterAltOffIcon />}
-                onClick={() => {
-                  setCefrFilter([])
-                  setCategoryFilter([])
-                  setPage(1)
-                }}
-                disabled={!isFilteringRange}
-              >
-                絞り込みをリセット
-              </Button>
+                  {CEFR_FILTER_OPTIONS.map((level) => (
+                    <MenuItem key={level} value={level}>
+                      <Checkbox size="small" checked={cefrFilter.includes(level)} />
+                      <ListItemText primary={level === CEFR_UNSET ? '未登録' : level} />
+                    </MenuItem>
+                  ))}
+                </Select>
+              )}
+              {!isIdiom && (
+                <Autocomplete
+                  multiple
+                  size="small"
+                  options={knownCategories}
+                  value={categoryFilter}
+                  onChange={(e, newValue) => {
+                    setCategoryFilter(newValue)
+                    setPage(1)
+                  }}
+                  sx={{ minWidth: 200, flex: { sm: '1 1 220px' }, maxWidth: { sm: 320 } }}
+                  renderInput={(params) => (
+                    <TextField {...params} label="カテゴリで絞り込み" />
+                  )}
+                />
+              )}
+              {!isIdiom && (
+                <Button
+                  size="small"
+                  startIcon={<FilterAltOffIcon />}
+                  onClick={() => {
+                    setCefrFilter([])
+                    setCategoryFilter([])
+                    setPage(1)
+                  }}
+                  disabled={!isFilteringRange}
+                >
+                  絞り込みをリセット
+                </Button>
+              )}
               <Typography
                 color="text.secondary"
                 sx={{ ml: { sm: 'auto' }, whiteSpace: 'nowrap' }}
@@ -780,7 +828,7 @@ export default function WordList() {
                       </CardContent>
                     </Card>
                   ) : (
-                    <WordCard key={w.id} word={w} onEdit={startEdit} onDelete={handleDelete} />
+                    <WordCard key={w.id} word={w} isIdiom={isIdiom} onEdit={startEdit} onDelete={handleDelete} />
                   ),
                 )}
               </Stack>
@@ -799,7 +847,7 @@ export default function WordList() {
                   </colgroup>
                   <TableHead>
                     <TableRow>
-                      <TableCell>単語</TableCell>
+                      <TableCell>{unit}</TableCell>
                       <TableCell>意味</TableCell>
                       <TableCell>習熟度</TableCell>
                       <TableCell sx={{ px: 0.5 }}>正/誤</TableCell>
@@ -823,13 +871,14 @@ export default function WordList() {
                               <Typography fontWeight={600} sx={{ wordBreak: 'break-word' }}>
                                 {w.word}
                               </Typography>
-                              {/* phonetic は辞書API由来で既にスラッシュ付き（例: /rɪˈzɪliənt/） */}
-                              {w.phonetic && (
+                              {/* 発音記号・CEFR は単語専用（熟語モードでは非表示）。
+                                  phonetic は辞書API由来で既にスラッシュ付き（例: /rɪˈzɪliənt/） */}
+                              {!isIdiom && w.phonetic && (
                                 <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
                                   {w.phonetic}
                                 </Typography>
                               )}
-                              {w.cefr && (
+                              {!isIdiom && w.cefr && (
                                 <Chip label={w.cefr} size="small" color="primary" variant="outlined" />
                               )}
                             </Stack>
