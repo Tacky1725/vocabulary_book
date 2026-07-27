@@ -1,57 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useAuth } from './useAuth.jsx'
-import { subscribeWords, syncWordsDiff } from '../lib/cloud.js'
-import { saveWordsMirror } from '../lib/storage.js'
+import { useEntries } from './useEntries.js'
 
 // 単語一覧の state と Firestore（users/{uid}/words）を同期させるフック。
+// 実体は汎用 useEntries('words')。戻り値の名前だけ従来どおり words/updateWords に合わせる。
 // 更新は必ず updateWords(prev => next) 経由で行うこと（楽観更新と差分書き込みが一体）。
-// スナップショットは localStorage にもミラーし、クラウド障害時のバックアップとして残す。
 export function useWords() {
-  const { user } = useAuth()
-  const uid = user?.uid ?? null
-  const [words, setWords] = useState([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState(null)
-  // updateWords の連続呼び出しでも直前の状態から差分を取れるよう ref にも持つ
-  const wordsRef = useRef([])
-
-  useEffect(() => {
-    wordsRef.current = []
-    setWords([])
-    setError(null)
-
-    if (!uid) {
-      setIsLoading(false)
-      return undefined
-    }
-
-    setIsLoading(true)
-    return subscribeWords(
-      uid,
-      (next) => {
-        wordsRef.current = next
-        setWords(next)
-        setIsLoading(false)
-        saveWordsMirror(uid, next) // ローカルバックアップ（ユーザーごとに分離）
-      },
-      (err) => {
-        setIsLoading(false)
-        setError(err)
-      },
-    )
-  }, [uid])
-
-  const updateWords = useCallback(
-    (updater) => {
-      if (!uid) return
-      const prev = wordsRef.current
-      const next = typeof updater === 'function' ? updater(prev) : updater
-      wordsRef.current = next
-      setWords(next) // 楽観更新（Firestore の snapshot からも同じ状態が届く）
-      syncWordsDiff(uid, prev, next) // fire-and-forget（オフライン時は SDK がキュー保持）
-    },
-    [uid]
-  )
-
-  return { words, updateWords, isLoading, error }
+  const { entries, updateEntries, isLoading, error } = useEntries('words')
+  return { words: entries, updateWords: updateEntries, isLoading, error }
 }

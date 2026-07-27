@@ -17,7 +17,10 @@ import {
 import { db } from './firebase.js'
 import { loadLegacyTestSessions, loadLegacyWords, normalizeWord } from './storage.js'
 
-const wordsCol = (uid) => collection(db, 'users', uid, 'words')
+// エントリ系コレクション（単語・熟語）。kind ∈ 'words' | 'idioms' でコレクションを分ける。
+// 単語と熟語はスキーマが同一なので購読・差分書き込みロジックを共有し、パスだけ切り替える。
+const entriesCol = (uid, kind) => collection(db, 'users', uid, kind)
+const wordsCol = (uid) => entriesCol(uid, 'words')
 const sessionsDoc = (uid) => doc(db, 'users', uid, 'meta', 'testSessions')
 const settingsDoc = (uid) => doc(db, 'users', uid, 'meta', 'settings')
 
@@ -31,18 +34,24 @@ function sortWords(words) {
   )
 }
 
-// 単語一覧の購読。オフライン時は IndexedDB キャッシュから配信される。戻り値は購読解除関数。
-// 読み込み時に normalizeWord を通し、旧形式の変換と新フィールドのデフォルト補完を行う
-// （ローカル state を埋めるだけで Firestore へは書き戻さない。README「共通の設計判断 B」）。
-export function subscribeWords(uid, onChange, onError) {
+// エントリ一覧（単語・熟語）の購読。オフライン時は IndexedDB キャッシュから配信される。
+// 戻り値は購読解除関数。読み込み時に normalizeWord を通し、旧形式の変換と新フィールドの
+// デフォルト補完を行う（ローカル state を埋めるだけで Firestore へは書き戻さない。
+// README「共通の設計判断 B」）。単語・熟語ともスキーマが同一なので normalizeWord を共用する。
+export function subscribeEntries(uid, kind, onChange, onError) {
   return onSnapshot(
-    wordsCol(uid),
+    entriesCol(uid, kind),
     (snap) => onChange(sortWords(snap.docs.map((d) => normalizeWord(d.data())))),
     (err) => {
-      console.error('単語一覧の購読に失敗しました', err)
+      console.error('一覧の購読に失敗しました', err)
       onError?.(err)
     },
   )
+}
+
+// 後方互換の薄いラッパ（既存の呼び出し側を壊さない）。
+export function subscribeWords(uid, onChange, onError) {
+  return subscribeEntries(uid, 'words', onChange, onError)
 }
 
 // Firestore の 1 バッチ 500 操作制限に収まるよう分割してコミットする
@@ -58,16 +67,18 @@ async function commitOps(ops) {
 
 // prev と next の差分だけを書き込む（追加/変更は set、消えた id は delete）。
 // ページ側はイミュータブル更新なので、変更のないエントリは参照が同じ = 書き込み対象外になる。
-export async function syncWordsDiff(uid, prev, next) {
+// kind でコレクション（単語・熟語）を切り替える。
+export async function syncEntriesDiff(uid, kind, prev, next) {
   try {
+    const col = entriesCol(uid, kind)
     const prevById = new Map(prev.map((w) => [w.id, w]))
     const nextIds = new Set(next.map((w) => w.id))
     const ops = []
     for (const w of next) {
-      if (prevById.get(w.id) !== w) ops.push((b) => b.set(doc(wordsCol(uid), w.id), w))
+      if (prevById.get(w.id) !== w) ops.push((b) => b.set(doc(col, w.id), w))
     }
     for (const w of prev) {
-      if (!nextIds.has(w.id)) ops.push((b) => b.delete(doc(wordsCol(uid), w.id)))
+      if (!nextIds.has(w.id)) ops.push((b) => b.delete(doc(col, w.id)))
     }
     if (ops.length > 0) await commitOps(ops)
     return { ok: true }
@@ -75,6 +86,11 @@ export async function syncWordsDiff(uid, prev, next) {
     console.error('Firestore への保存に失敗しました', e)
     return { ok: false, error: '保存に失敗しました' }
   }
+}
+
+// 後方互換の薄いラッパ（既存の呼び出し側を壊さない）。
+export async function syncWordsDiff(uid, prev, next) {
+  return syncEntriesDiff(uid, 'words', prev, next)
 }
 
 // テスト実施履歴の購読。戻り値は購読解除関数。

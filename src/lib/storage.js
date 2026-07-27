@@ -10,7 +10,9 @@ import { DEFAULT_SRS } from './srs.js'
 
 const LEGACY_WORDS_KEY = 'vocab-app:words'
 const LEGACY_SESSIONS_KEY = 'vocab-app:test-sessions'
-const wordsMirrorKey = (uid) => `vocab-app:words:${uid}`
+// 単語・熟語などエントリ系ミラーのキー。kind ごとに分離する
+// （kind='words' は従来キー `vocab-app:words:{uid}` と一致し後方互換）。
+const entriesMirrorKey = (uid, kind) => `vocab-app:${kind}:${uid}`
 const sessionsMirrorKey = (uid) => `vocab-app:test-sessions:${uid}`
 const settingsMirrorKey = (uid) => `vocab-app:settings:${uid}`
 
@@ -85,8 +87,14 @@ export function loadLegacyWords() {
   return loadJson(LEGACY_WORDS_KEY, []).map(normalizeWord)
 }
 
+// Firestore スナップショットを kind ごとに localStorage へミラー保存する（クラウド障害時の保険）。
+export function saveEntriesMirror(uid, kind, entries) {
+  saveJson(entriesMirrorKey(uid, kind), entries)
+}
+
+// 後方互換の薄いラッパ（既存の呼び出し側を壊さない）。
 export function saveWordsMirror(uid, words) {
-  saveJson(wordsMirrorKey(uid), words)
+  saveEntriesMirror(uid, 'words', words)
 }
 
 // 入力フィールドから完全な単語エントリを組み立てる（デフォルト値を補完）。
