@@ -22,15 +22,14 @@ import useMediaQuery from '@mui/material/useMediaQuery'
 import { useTheme } from '@mui/material/styles'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
 import HomeIcon from '@mui/icons-material/Home'
-import AddCircleIcon from '@mui/icons-material/AddCircle'
 import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
 import QuizIcon from '@mui/icons-material/Quiz'
-import LeaderboardIcon from '@mui/icons-material/Leaderboard'
+import StyleIcon from '@mui/icons-material/Style'
 import Dashboard from './pages/Dashboard.jsx'
 import AddWord from './pages/AddWord.jsx'
 import WordList from './pages/WordList.jsx'
 import TestPage from './pages/TestPage.jsx'
-import Ranking from './pages/Ranking.jsx'
+import Flashcard from './pages/Flashcard.jsx'
 import Settings from './pages/Settings.jsx'
 import LoginScreen from './components/LoginScreen.jsx'
 import { useAuth } from './hooks/useAuth.jsx'
@@ -42,12 +41,13 @@ import {
   MOBILE_NAV_SAFE_AREA,
 } from './lib/layout.js'
 
+// ボトムナビ／PCヘッダー共通の項目。単語追加は単語一覧から、ランキングは
+// ダッシュボード内に集約したのでナビには出さない（4項目に絞る）。
 const NAV_ITEMS = [
   { to: '/', label: 'ダッシュボード', shortLabel: 'ホーム', icon: <HomeIcon />, end: true },
-  { to: '/add', label: '単語追加', shortLabel: '追加', icon: <AddCircleIcon /> },
   { to: '/words', label: '単語一覧', shortLabel: '一覧', icon: <FormatListBulletedIcon /> },
   { to: '/test', label: 'テスト', shortLabel: 'テスト', icon: <QuizIcon /> },
-  { to: '/ranking', label: 'ランキング', shortLabel: 'ランキング', icon: <LeaderboardIcon /> },
+  { to: '/flashcard', label: '暗記カード', shortLabel: 'カード', icon: <StyleIcon /> },
 ]
 
 // 現在のパスに対応する NAV_ITEMS の to を返す（末尾は前方一致でネストにも耐える）
@@ -99,23 +99,18 @@ function MobileNav() {
         showLabels
         sx={{
           height: MOBILE_NAV_CONTENT_HEIGHT,
-          // MUI の標準 minWidth は80pxで、5項目では400px必要になる。
-          // 320px幅でも各項目を十分なタップ領域（幅64px以上）として表示する。
+          // 4項目なら320px幅でも各項目に十分なタップ領域を確保できる。
           '& .MuiBottomNavigationAction-root': { minWidth: 0, px: 0.25 },
           '& .MuiBottomNavigationAction-label, & .MuiBottomNavigationAction-label.Mui-selected': {
             fontSize: '0.625rem',
             lineHeight: 1.2,
             whiteSpace: 'nowrap',
           },
-          '& .mobile-nav-ranking .MuiBottomNavigationAction-label, & .mobile-nav-ranking .MuiBottomNavigationAction-label.Mui-selected': {
-            fontSize: '0.5625rem',
-          },
         }}
       >
         {NAV_ITEMS.map((item) => (
           <BottomNavigationAction
             key={item.to}
-            className={item.to === '/ranking' ? 'mobile-nav-ranking' : undefined}
             label={item.shortLabel}
             value={item.to}
             icon={item.icon}
@@ -196,7 +191,7 @@ function AppContent() {
       <Route path="/add" element={<AddWord />} />
       <Route path="/words" element={<WordList />} />
       <Route path="/test" element={<TestPage />} />
-      <Route path="/ranking" element={<Ranking />} />
+      <Route path="/flashcard" element={<Flashcard />} />
       <Route path="/settings" element={<Settings />} />
     </Routes>
   )

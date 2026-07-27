@@ -17,8 +17,12 @@ import {
 import { db } from './firebase.js'
 import { loadLegacyTestSessions, loadLegacyWords, normalizeWord } from './storage.js'
 
-const wordsCol = (uid) => collection(db, 'users', uid, 'words')
+// エントリ系コレクション（単語・熟語）。kind ∈ 'words' | 'idioms' でコレクションを分ける。
+// 単語と熟語はスキーマが同一なので購読・差分書き込みロジックを共有し、パスだけ切り替える。
+const entriesCol = (uid, kind) => collection(db, 'users', uid, kind)
+const wordsCol = (uid) => entriesCol(uid, 'words')
 const sessionsDoc = (uid) => doc(db, 'users', uid, 'meta', 'testSessions')
+const flashcardSessionsDoc = (uid) => doc(db, 'users', uid, 'meta', 'flashcardSessions')
 const settingsDoc = (uid) => doc(db, 'users', uid, 'meta', 'settings')
 
 // Firestore のコレクションに固有の順序はないため、追加日時（同時刻は id）で表示順を安定させる。
@@ -31,18 +35,24 @@ function sortWords(words) {
   )
 }
 
-// 単語一覧の購読。オフライン時は IndexedDB キャッシュから配信される。戻り値は購読解除関数。
-// 読み込み時に normalizeWord を通し、旧形式の変換と新フィールドのデフォルト補完を行う
-// （ローカル state を埋めるだけで Firestore へは書き戻さない。README「共通の設計判断 B」）。
-export function subscribeWords(uid, onChange, onError) {
+// エントリ一覧（単語・熟語）の購読。オフライン時は IndexedDB キャッシュから配信される。
+// 戻り値は購読解除関数。読み込み時に normalizeWord を通し、旧形式の変換と新フィールドの
+// デフォルト補完を行う（ローカル state を埋めるだけで Firestore へは書き戻さない。
+// README「共通の設計判断 B」）。単語・熟語ともスキーマが同一なので normalizeWord を共用する。
+export function subscribeEntries(uid, kind, onChange, onError) {
   return onSnapshot(
-    wordsCol(uid),
+    entriesCol(uid, kind),
     (snap) => onChange(sortWords(snap.docs.map((d) => normalizeWord(d.data())))),
     (err) => {
-      console.error('単語一覧の購読に失敗しました', err)
+      console.error('一覧の購読に失敗しました', err)
       onError?.(err)
     },
   )
+}
+
+// 後方互換の薄いラッパ（既存の呼び出し側を壊さない）。
+export function subscribeWords(uid, onChange, onError) {
+  return subscribeEntries(uid, 'words', onChange, onError)
 }
 
 // Firestore の 1 バッチ 500 操作制限に収まるよう分割してコミットする
@@ -58,16 +68,18 @@ async function commitOps(ops) {
 
 // prev と next の差分だけを書き込む（追加/変更は set、消えた id は delete）。
 // ページ側はイミュータブル更新なので、変更のないエントリは参照が同じ = 書き込み対象外になる。
-export async function syncWordsDiff(uid, prev, next) {
+// kind でコレクション（単語・熟語）を切り替える。
+export async function syncEntriesDiff(uid, kind, prev, next) {
   try {
+    const col = entriesCol(uid, kind)
     const prevById = new Map(prev.map((w) => [w.id, w]))
     const nextIds = new Set(next.map((w) => w.id))
     const ops = []
     for (const w of next) {
-      if (prevById.get(w.id) !== w) ops.push((b) => b.set(doc(wordsCol(uid), w.id), w))
+      if (prevById.get(w.id) !== w) ops.push((b) => b.set(doc(col, w.id), w))
     }
     for (const w of prev) {
-      if (!nextIds.has(w.id)) ops.push((b) => b.delete(doc(wordsCol(uid), w.id)))
+      if (!nextIds.has(w.id)) ops.push((b) => b.delete(doc(col, w.id)))
     }
     if (ops.length > 0) await commitOps(ops)
     return { ok: true }
@@ -75,6 +87,11 @@ export async function syncWordsDiff(uid, prev, next) {
     console.error('Firestore への保存に失敗しました', e)
     return { ok: false, error: '保存に失敗しました' }
   }
+}
+
+// 後方互換の薄いラッパ（既存の呼び出し側を壊さない）。
+export async function syncWordsDiff(uid, prev, next) {
+  return syncEntriesDiff(uid, 'words', prev, next)
 }
 
 // テスト実施履歴の購読。戻り値は購読解除関数。
@@ -92,12 +109,14 @@ export function subscribeTestSessions(uid, onChange, onError) {
   )
 }
 
-export async function recordTestSession(uid, { total, correct, durationMs }) {
+export async function recordTestSession(uid, { total, correct, durationMs, kind }) {
   try {
     const session = { date: new Date().toISOString(), total, correct }
     if (Number.isFinite(durationMs) && durationMs >= 0) {
       session.durationMs = Math.round(durationMs)
     }
+    // 熟語テストのみ kind を付ける。単語は従来どおり kind 無し（欠落＝単語扱い）で後方互換。
+    if (kind === 'idioms') session.kind = 'idioms'
     await setDoc(
       sessionsDoc(uid),
       { sessions: arrayUnion(session) },
@@ -107,6 +126,34 @@ export async function recordTestSession(uid, { total, correct, durationMs }) {
   } catch (e) {
     console.error('テスト履歴の保存に失敗しました', e)
     return { ok: false, error: 'テスト履歴の保存に失敗しました' }
+  }
+}
+
+// ---- 暗記カード実施履歴（meta/flashcardSessions） ----
+// テスト履歴とは別ドキュメント。自己申告なので正誤ではなく known（覚えた数）を持つ。
+// { sessions: [{ date, kind, direction, total, known }] }、追記は arrayUnion。
+export function subscribeFlashcardSessions(uid, onChange, onError) {
+  return onSnapshot(
+    flashcardSessionsDoc(uid),
+    (snap) => {
+      const data = snap.data()
+      onChange(Array.isArray(data?.sessions) ? data.sessions : [])
+    },
+    (err) => {
+      console.error('暗記カード履歴の購読に失敗しました', err)
+      onError?.(err)
+    },
+  )
+}
+
+export async function recordFlashcardSession(uid, { kind, direction, total, known }) {
+  try {
+    const session = { date: new Date().toISOString(), kind, direction, total, known }
+    await setDoc(flashcardSessionsDoc(uid), { sessions: arrayUnion(session) }, { merge: true })
+    return { ok: true }
+  } catch (e) {
+    console.error('暗記カード履歴の保存に失敗しました', e)
+    return { ok: false, error: '暗記カード履歴の保存に失敗しました' }
   }
 }
 

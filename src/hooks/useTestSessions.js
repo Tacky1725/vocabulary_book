@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from './useAuth.jsx'
 import { usePublicProfile } from './usePublicProfile.js'
-import { recordTestSession as recordToCloud, subscribeTestSessions } from '../lib/cloud.js'
+import {
+  recordTestSession as recordToCloud,
+  subscribeTestSessions,
+  subscribeFlashcardSessions,
+} from '../lib/cloud.js'
 import {
   ensureDailyEntry,
   recordLeaderboardAnswer as recordLeaderboardAnswerToCloud,
@@ -23,6 +27,10 @@ export function useTestSessions() {
   const [sessions, setSessions] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
+  // 継続日数（学習日）にはテストに加え暗記カードも算入するため、暗記カード履歴の日付も購読する。
+  // ここでは streak 算出にしか使わず、ミラー保存は useFlashcardSessions 側が担う。
+  const [flashcardSessions, setFlashcardSessions] = useState([])
+  const [flashcardLoading, setFlashcardLoading] = useState(true)
   // 当日エントリのensureはログイン（sessions・プロフィール読み込み完了）につき1回だけ行う
   const ensuredUidRef = useRef(null)
 
@@ -51,24 +59,43 @@ export function useTestSessions() {
     )
   }, [uid])
 
+  // 継続日数の算入用に暗記カード履歴の日付を購読する（streak計算にのみ使用）。
+  useEffect(() => {
+    setFlashcardSessions([])
+    if (!uid) {
+      setFlashcardLoading(false)
+      return undefined
+    }
+    setFlashcardLoading(true)
+    return subscribeFlashcardSessions(
+      uid,
+      (next) => {
+        setFlashcardSessions(next)
+        setFlashcardLoading(false)
+      },
+      () => setFlashcardLoading(false),
+    )
+  }, [uid])
+
   // ランキングの当日エントリ（streak表示用）をログイン成立時に1回作成/更新する。
   // 未学習ユーザーも0件でランキングに表示されるようにするため、回答を待たずここで作る。
   // profileLoadingも待つのは、publicProfilesの読み込みより先に発火してGoogleアカウント名を
   // 書き込んでしまうと（このeffectはuidにつき1回しか動かないため）以後修正されないため。
   useEffect(() => {
-    if (!uid || isLoading || profileLoading || ensuredUidRef.current === uid) return
+    if (!uid || isLoading || flashcardLoading || profileLoading || ensuredUidRef.current === uid) return
     ensuredUidRef.current = uid
     ensureDailyEntry(uid, {
       displayName,
       photoURL,
-      streak: calcStreakFromSessions(sessions),
+      // 継続日数はテスト＋暗記カードの学習日から算出する
+      streak: calcStreakFromSessions([...sessions, ...flashcardSessions]),
     })
-  }, [uid, isLoading, profileLoading, sessions, displayName, photoURL])
+  }, [uid, isLoading, flashcardLoading, profileLoading, sessions, flashcardSessions, displayName, photoURL])
 
   // fire-and-forget（オフライン時は SDK がキュー保持し再接続時に送信）
   const recordTestSession = useCallback(
-    ({ total, correct, durationMs }) => {
-      if (uid) recordToCloud(uid, { total, correct, durationMs })
+    ({ total, correct, durationMs, kind }) => {
+      if (uid) recordToCloud(uid, { total, correct, durationMs, kind })
     },
     [uid]
   )

@@ -52,7 +52,8 @@ import {
 } from '../lib/srs.js'
 import { hasMeaningJa, joinedMeaningJa } from '../lib/senses.js'
 import { CEFR_LEVELS, collectKnownCategories } from '../lib/attributes.js'
-import { useWords } from '../hooks/useWords.js'
+import { useEntries } from '../hooks/useEntries.js'
+import { useEntryKind, entryKindSearch, entryKindLabel } from '../hooks/useEntryKind.js'
 import { useTestSessions } from '../hooks/useTestSessions.js'
 import { useSettings } from '../hooks/useSettings.js'
 import { useFillBlankQuestionCache } from '../hooks/useFillBlankQuestionCache.js'
@@ -73,7 +74,10 @@ function scrollToPageTop() {
 
 export default function TestPage() {
   const { user } = useAuth()
-  const { words, updateWords, isLoading: wordsLoading, error: wordsError } = useWords()
+  const [kind, setKind] = useEntryKind()
+  const isIdiom = kind === 'idioms'
+  const unit = entryKindLabel(kind) // '単語' | '熟語'
+  const { entries: words, updateEntries: updateWords, isLoading: wordsLoading, error: wordsError } = useEntries(kind)
   const {
     recordTestSession,
     recordLeaderboardAnswer,
@@ -146,16 +150,17 @@ export default function TestPage() {
   // ダミー選択肢の多様性のため、buildQuestions には絞り込み前の eligibleWords を渡す（下記）。
   const filteredWords = useMemo(() => {
     let filtered = eligibleWords
-    if (cefrFilter.length > 0) filtered = filtered.filter((w) => cefrFilter.includes(w.cefr))
-    if (categoryFilter.length > 0) {
+    // CEFR・カテゴリは単語専用。熟語モードでは範囲フィルタUIを隠すので適用もしない。
+    if (!isIdiom && cefrFilter.length > 0) filtered = filtered.filter((w) => cefrFilter.includes(w.cefr))
+    if (!isIdiom && categoryFilter.length > 0) {
       const wanted = categoryFilter.map((t) => t.toLowerCase())
       filtered = filtered.filter((w) =>
         (w.categories ?? []).some((tag) => wanted.includes(tag.toLowerCase()))
       )
     }
     return filtered
-  }, [eligibleWords, cefrFilter, categoryFilter])
-  const isFilteringRange = cefrFilter.length > 0 || categoryFilter.length > 0
+  }, [eligibleWords, cefrFilter, categoryFilter, isIdiom])
+  const isFilteringRange = !isIdiom && (cefrFilter.length > 0 || categoryFilter.length > 0)
   // 選択中モードで実際に出題できる語（count=null で全件）。ピッカー自身を単一の真実として使う。
   // random/recent/weak は filteredWords 全件だが、unlearned のようにフィルタするモードは減る。
   const modeWords = useMemo(
@@ -178,15 +183,23 @@ export default function TestPage() {
     hasEnoughDistinctAnswers &&
     modeWords.length >= modeMinimum &&
     (questionType !== QUESTION_TYPES.FILL_BLANK || !isFillBlankGenerating)
+  // 穴埋め（fill-blank）は活用形推定が単一見出し語前提のため熟語では出さない。
+  const availableFormats = useMemo(
+    () =>
+      isIdiom
+        ? QUESTION_FORMATS.filter((format) => format.type !== QUESTION_TYPES.FILL_BLANK)
+        : QUESTION_FORMATS,
+    [isIdiom],
+  )
   const currentModeLabel = QUIZ_MODES.find((m) => m.id === mode)?.label ?? ''
   const currentQuestionFormatLabel =
     QUESTION_FORMATS.find((format) => format.type === questionType)?.label ?? ''
   const eligibilityLabel =
     questionType === QUESTION_TYPES.MEANING_TO_WORD
-      ? '日本語訳と英単語のある単語'
+      ? `日本語訳と${isIdiom ? '英語' : '英単語'}のある${unit}`
       : questionType === QUESTION_TYPES.FILL_BLANK
         ? '例文内に見出し語または活用形がある単語'
-        : '日本語訳のある単語'
+        : `日本語訳のある${unit}`
 
   if (wordsLoading || sessionsLoading || settingsLoading) return <LoadingState />
   if (wordsError || sessionsError || settingsError) return <DataErrorState />
@@ -258,6 +271,7 @@ export default function TestPage() {
         total: questions.length,
         correct: score,
         durationMs: totalElapsedMsRef.current,
+        kind,
       })
       setPhase('result')
     }
@@ -316,6 +330,7 @@ export default function TestPage() {
         score={score}
         wrongWords={wrongWords}
         durationMs={totalElapsedMs}
+        unit={unit}
         onRestart={restart}
       />
     )
@@ -324,10 +339,31 @@ export default function TestPage() {
   return (
     <Card sx={{ mb: { xs: 2, sm: 0 } }}>
       <CardContent>
+        {/* 単語/熟語の切り替え（URLクエリ ?kind=idiom）。WordListと同じ方式。 */}
+        <ToggleButtonGroup
+          value={kind}
+          exclusive
+          size="small"
+          onChange={(e, next) => {
+            if (!next) return
+            // 穴埋めは熟語では出さないので、切替時に選択中なら選択式へ戻す
+            if (next === 'idioms' && questionType === QUESTION_TYPES.FILL_BLANK) {
+              setQuestionType(QUESTION_TYPES.MEANING_CHOICE)
+            }
+            setCefrFilter([])
+            setCategoryFilter([])
+            setKind(next)
+          }}
+          sx={{ mb: 1.5 }}
+        >
+          <ToggleButton value="words">単語</ToggleButton>
+          <ToggleButton value="idioms">熟語</ToggleButton>
+        </ToggleButtonGroup>
+
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
           <QuizIcon color="primary" />
           <Typography variant="h5" component="h2">
-            単語テスト
+            {unit}テスト
           </Typography>
         </Stack>
         <Typography color="text.secondary" sx={{ mb: 2 }}>
@@ -342,7 +378,7 @@ export default function TestPage() {
             value={questionType}
             onChange={(e) => setQuestionType(e.target.value)}
           >
-            {QUESTION_FORMATS.map((format) => (
+            {availableFormats.map((format) => (
               <MenuItem key={format.type} value={format.type} disabled={!format.available}>
                 {format.label}
                 {format.available ? '' : '（準備中）'}
@@ -384,51 +420,56 @@ export default function TestPage() {
           </Select>
         </FormControl>
 
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          spacing={{ xs: 0.5, sm: 0 }}
-          sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between', mb: 1 }}
-        >
-          <Typography variant="subtitle2" color="text.secondary">
-            出題範囲（CEFR・カテゴリ）
-          </Typography>
-          <Button
-            size="small"
-            startIcon={<FilterAltOffIcon />}
-            onClick={() => {
-              setCefrFilter([])
-              setCategoryFilter([])
-            }}
-            disabled={!isFilteringRange}
-            sx={{ alignSelf: { xs: 'flex-end', sm: 'auto' } }}
-          >
-            絞り込みをリセット
-          </Button>
-        </Stack>
-        <ToggleButtonGroup
-          value={cefrFilter}
-          onChange={(e, newValue) => setCefrFilter(newValue)}
-          aria-label="CEFRで絞り込み"
-          color="primary"
-          size="small"
-          sx={{ mb: 2, flexWrap: 'wrap' }}
-        >
-          {CEFR_LEVELS.map((level) => (
-            <ToggleButton key={level} value={level} aria-label={level}>
-              {level}
-            </ToggleButton>
-          ))}
-        </ToggleButtonGroup>
+        {/* CEFR・カテゴリの出題範囲フィルタは単語専用（熟語モードでは非表示） */}
+        {!isIdiom && (
+          <>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={{ xs: 0.5, sm: 0 }}
+              sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between', mb: 1 }}
+            >
+              <Typography variant="subtitle2" color="text.secondary">
+                出題範囲（CEFR・カテゴリ）
+              </Typography>
+              <Button
+                size="small"
+                startIcon={<FilterAltOffIcon />}
+                onClick={() => {
+                  setCefrFilter([])
+                  setCategoryFilter([])
+                }}
+                disabled={!isFilteringRange}
+                sx={{ alignSelf: { xs: 'flex-end', sm: 'auto' } }}
+              >
+                絞り込みをリセット
+              </Button>
+            </Stack>
+            <ToggleButtonGroup
+              value={cefrFilter}
+              onChange={(e, newValue) => setCefrFilter(newValue)}
+              aria-label="CEFRで絞り込み"
+              color="primary"
+              size="small"
+              sx={{ mb: 2, flexWrap: 'wrap' }}
+            >
+              {CEFR_LEVELS.map((level) => (
+                <ToggleButton key={level} value={level} aria-label={level}>
+                  {level}
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
 
-        <Autocomplete
-          multiple
-          size="small"
-          options={knownCategories}
-          value={categoryFilter}
-          onChange={(e, newValue) => setCategoryFilter(newValue)}
-          sx={{ mb: 2 }}
-          renderInput={(params) => <TextField {...params} label="出題範囲（カテゴリ）" />}
-        />
+            <Autocomplete
+              multiple
+              size="small"
+              options={knownCategories}
+              value={categoryFilter}
+              onChange={(e, newValue) => setCategoryFilter(newValue)}
+              sx={{ mb: 2 }}
+              renderInput={(params) => <TextField {...params} label="出題範囲（カテゴリ）" />}
+            />
+          </>
+        )}
 
         <Typography color="text.secondary" sx={{ mb: 2 }}>
           出題対象: {modeWords.length} 語（{currentModeLabel}・{currentQuestionFormatLabel}）
@@ -438,16 +479,16 @@ export default function TestPage() {
           <Alert severity="error" sx={{ mb: 2 }}>
             テストを開始するには{eligibilityLabel}が
             {requiredEligibleCount}語以上必要です。
-            <Link component={RouterLink} to="/add" sx={{ ml: 0.5 }}>
-              単語を追加する
+            <Link component={RouterLink} to={`/add${entryKindSearch(kind)}`} sx={{ ml: 0.5 }}>
+              {unit}を追加する
             </Link>
           </Alert>
         )}
 
         {hasEnoughEligible && !hasEnoughDistinctAnswers && (
           <Alert severity="warning" sx={{ mb: 2 }}>
-            日本語→英語問題には、異なる英単語が{MIN_WORDS_FOR_TEST}語以上必要です。
-            英単語の重複を確認するか、別の出題形式を選んでください。
+            日本語→英語問題には、異なる{isIdiom ? '英語表現' : '英単語'}が{MIN_WORDS_FOR_TEST}語以上必要です。
+            {isIdiom ? '熟語' : '英単語'}の重複を確認するか、別の出題形式を選んでください。
           </Alert>
         )}
 
@@ -456,7 +497,7 @@ export default function TestPage() {
           <Alert severity="warning" sx={{ mb: 2 }}>
             {mode === 'review'
               ? '今日の復習対象がありません。通常テストや未出題の語を学習できます。'
-              : `「${currentModeLabel}」${isFilteringRange ? '・選択した出題範囲' : ''}の出題対象が${modeMinimum}語未満です。${isFilteringRange ? '範囲を広げる、別のモードを選ぶ、' : '別のモードを選ぶか、'}単語を追加してください。`}
+              : `「${currentModeLabel}」${isFilteringRange ? '・選択した出題範囲' : ''}の出題対象が${modeMinimum}語未満です。${isFilteringRange ? '範囲を広げる、別のモードを選ぶ、' : '別のモードを選ぶか、'}${unit}を追加してください。`}
           </Alert>
         )}
 
@@ -1036,7 +1077,7 @@ function QuizScreen({
   )
 }
 
-function ResultScreen({ total, score, wrongWords, durationMs, onRestart }) {
+function ResultScreen({ total, score, wrongWords, durationMs, unit = '単語', onRestart }) {
   const rate = total > 0 ? Math.round((score / total) * 100) : 0
 
   return (
@@ -1058,7 +1099,7 @@ function ResultScreen({ total, score, wrongWords, durationMs, onRestart }) {
         {wrongWords.length > 0 ? (
           <Box sx={{ mb: 2 }}>
             <Typography variant="subtitle1" component="h3" gutterBottom>
-              間違えた単語
+              間違えた{unit}
             </Typography>
             <List dense disablePadding>
               {wrongWords.map((w) => (
