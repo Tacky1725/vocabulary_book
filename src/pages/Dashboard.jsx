@@ -32,7 +32,6 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import AddIcon from '@mui/icons-material/Add'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import ReplayIcon from '@mui/icons-material/Replay'
-import LeaderboardIcon from '@mui/icons-material/Leaderboard'
 import DonutSmallIcon from '@mui/icons-material/DonutSmall'
 import HistoryIcon from '@mui/icons-material/History'
 import { useAuth } from '../hooks/useAuth.jsx'
@@ -42,6 +41,7 @@ import { useSettings } from '../hooks/useSettings.js'
 import { useWeeklyLeaderboard } from '../hooks/useLeaderboard.js'
 import { DataErrorState, LoadingState } from '../components/LoadingState.jsx'
 import { WeeklyChallengeCard } from '../components/WeeklyChallengeCard.jsx'
+import { RankingSection } from '../components/RankingSection.jsx'
 import {
   calcStreak,
   calcMasteryDistribution,
@@ -186,18 +186,10 @@ export default function Dashboard() {
         onEdit={() => setGoalDialogOpen(true)}
       />
 
-      {/* 週間チャレンジ（切磋琢磨機能）とランキングへの導線 */}
-      <WeeklyChallengeCard count={weeklyQuestionCount} completed={weeklyChallengeCompleted}>
-        <Button
-          component={Link}
-          to="/ranking"
-          variant="outlined"
-          startIcon={<LeaderboardIcon />}
-          sx={{ mt: 1.5 }}
-        >
-          ランキングを見る
-        </Button>
-      </WeeklyChallengeCard>
+      {/* 週間チャレンジ＋ランキング（切磋琢磨機能。以前は独立した /ranking ページ） */}
+      <WeeklyChallengeCard count={weeklyQuestionCount} completed={weeklyChallengeCompleted} />
+
+      <RankingSection />
 
       <ReviewQueueCard
         reviewCount={reviewCount}

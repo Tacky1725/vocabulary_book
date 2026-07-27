@@ -552,6 +552,16 @@ export default function WordList() {
           </Typography>
           <Stack direction="row" spacing={1} gap={1} sx={{ flexWrap: 'wrap' }}>
             <Button
+              component={RouterLink}
+              to="/add"
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              sx={{ flex: { xs: 1, sm: 'initial' } }}
+            >
+              単語を追加
+            </Button>
+            <Button
               variant="outlined"
               size="small"
               startIcon={<FileDownloadIcon />}

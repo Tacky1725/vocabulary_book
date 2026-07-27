@@ -1,4 +1,9 @@
+// ランキング表示のまとまり（タブ・順位表・届いた応援・初回表示名設定）。
+// 以前は独立ページ（pages/Ranking.jsx）だったが、ダッシュボードへ埋め込むため
+// 再利用コンポーネントに切り出した。週間チャレンジカードは Dashboard 側が持つので
+// ここには含めない（二重表示を避ける）。
 import { useMemo, useState } from 'react'
+import { Link as RouterLink } from 'react-router-dom'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import Stack from '@mui/material/Stack'
@@ -15,12 +20,7 @@ import Avatar from '@mui/material/Avatar'
 import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
-import Dialog from '@mui/material/Dialog'
-import DialogTitle from '@mui/material/DialogTitle'
-import DialogContent from '@mui/material/DialogContent'
-import DialogActions from '@mui/material/DialogActions'
 import Button from '@mui/material/Button'
-import TextField from '@mui/material/TextField'
 import Snackbar from '@mui/material/Snackbar'
 import Alert from '@mui/material/Alert'
 import List from '@mui/material/List'
@@ -40,11 +40,9 @@ import {
   formatOrdinal,
   getMedalEmoji,
   getWeekStartDateKey,
-  isWeeklyChallengeCompleted,
   toJstDateKey,
 } from '../lib/socialStats.js'
-import { LoadingState } from '../components/LoadingState.jsx'
-import { WeeklyChallengeCard } from '../components/WeeklyChallengeCard.jsx'
+import { LoadingState } from './LoadingState.jsx'
 import { MOBILE_SNACKBAR_BOTTOM } from '../lib/layout.js'
 
 const RANKING_TABS = [
@@ -53,9 +51,9 @@ const RANKING_TABS = [
   { id: 'streak', label: '継続日数', valueField: 'streak' },
 ]
 
-export default function Ranking() {
+export function RankingSection() {
   const { user } = useAuth()
-  const { profile, isLoading: profileLoading, saveProfile } = usePublicProfile()
+  const { profile, isLoading: profileLoading } = usePublicProfile()
   const { cheers } = useCheers()
   const [tabId, setTabId] = useState(RANKING_TABS[0].id)
   const [snackbar, setSnackbar] = useState(null)
@@ -78,12 +76,6 @@ export default function Ranking() {
     return ranked.map((r) => ({ ...r, ...byUid.get(r.uid) }))
   }, [activeData.entries, activeTab.valueField])
 
-  const myWeeklyCount = useMemo(
-    () => weekly.entries.find((e) => e.uid === user?.uid)?.questionCount ?? 0,
-    [weekly.entries, user?.uid]
-  )
-  const challengeCompleted = isWeeklyChallengeCompleted(myWeeklyCount)
-
   async function handleSendCheer(recipientUid, type) {
     const result = await sendCheer({ recipientUid, type })
     setSnackbar(
@@ -95,13 +87,27 @@ export default function Ranking() {
 
   return (
     <Stack spacing={3}>
-      <Typography variant="h5" component="h1">
-        ランキング
-      </Typography>
-
-      <WeeklyChallengeCard count={myWeeklyCount} completed={challengeCompleted} />
+      {/* 表示名未設定でもランキングの閲覧はできる。参加（自分の掲載・応援の受信）には
+          表示名が要るので、ブロックせず設定ページへの導線だけ出す。 */}
+      {needsInitialSetup && (
+        <Alert
+          severity="info"
+          action={
+            <Button color="inherit" size="small" component={RouterLink} to="/settings">
+              表示名を設定
+            </Button>
+          }
+        >
+          表示名を設定するとランキングに参加できます。
+        </Alert>
+      )}
 
       <Card>
+        <Stack direction="row" sx={{ alignItems: 'center', px: 2, pt: 1.5 }}>
+          <Typography variant="h6" component="h3">
+            ランキング
+          </Typography>
+        </Stack>
         <Tabs
           value={tabId}
           onChange={(_, value) => setTabId(value)}
@@ -122,14 +128,6 @@ export default function Ranking() {
       </Card>
 
       <ReceivedCheers cheers={cheers} />
-
-      {needsInitialSetup && (
-        <ProfileSetupDialog
-          defaultName={user?.displayName ?? ''}
-          photoURL={user?.photoURL ?? ''}
-          onSave={saveProfile}
-        />
-      )}
 
       <Snackbar
         open={Boolean(snackbar)}
@@ -275,51 +273,5 @@ function ReceivedCheers({ cheers }) {
         )}
       </CardContent>
     </Card>
-  )
-}
-
-// ランキング初回閲覧時のみ表示する。保存完了までは閉じられない
-// （以後の変更は アカウントメニュー →設定 ページで行う。src/pages/Settings.jsx）。
-function ProfileSetupDialog({ defaultName, photoURL, onSave }) {
-  const [name, setName] = useState(defaultName)
-  const [saving, setSaving] = useState(false)
-  const [errorMessage, setErrorMessage] = useState(null)
-
-  async function handleSave() {
-    const trimmed = name.trim()
-    if (trimmed.length < 1 || trimmed.length > 20) {
-      setErrorMessage('表示名は1〜20文字で入力してください')
-      return
-    }
-    setSaving(true)
-    const result = await onSave({ displayName: trimmed, photoURL })
-    setSaving(false)
-    if (!result.ok) setErrorMessage(result.error)
-  }
-
-  return (
-    <Dialog open disableEscapeKeyDown>
-      <DialogTitle>ランキング参加の表示名を設定</DialogTitle>
-      <DialogContent>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          ランキングに表示する名前を設定してください。あとから設定ページで変更できます。
-        </Typography>
-        <TextField
-          autoFocus
-          fullWidth
-          label="表示名"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          slotProps={{ htmlInput: { maxLength: 20 } }}
-          error={Boolean(errorMessage)}
-          helperText={errorMessage ?? `${name.length}/20文字`}
-        />
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={handleSave} variant="contained" disabled={saving}>
-          保存
-        </Button>
-      </DialogActions>
-    </Dialog>
   )
 }
