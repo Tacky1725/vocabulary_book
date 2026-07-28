@@ -20,7 +20,9 @@ export function entryKindSearch(kind) {
   return kind === 'idioms' ? '?kind=idiom' : ''
 }
 
-// 表示用の単位ラベル。
+// 表示用の単位ラベル。'mix'（単語・熟語ミックス出題）はテスト・暗記カードのみで使う。
 export function entryKindLabel(kind) {
-  return kind === 'idioms' ? '熟語' : '単語'
+  if (kind === 'idioms') return '熟語'
+  if (kind === 'mix') return '単語・熟語'
+  return '単語'
 }
