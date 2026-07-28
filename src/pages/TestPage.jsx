@@ -53,7 +53,7 @@ import {
 import { hasMeaningJa, joinedMeaningJa } from '../lib/senses.js'
 import { CEFR_LEVELS, collectKnownCategories } from '../lib/attributes.js'
 import { useEntries } from '../hooks/useEntries.js'
-import { useEntryKind, entryKindSearch, entryKindLabel } from '../hooks/useEntryKind.js'
+import { entryKindSearch, entryKindLabel } from '../hooks/useEntryKind.js'
 import { useTestSessions } from '../hooks/useTestSessions.js'
 import { useSettings } from '../hooks/useSettings.js'
 import { useFillBlankQuestionCache } from '../hooks/useFillBlankQuestionCache.js'
@@ -74,10 +74,48 @@ function scrollToPageTop() {
 
 export default function TestPage() {
   const { user } = useAuth()
-  const [kind, setKind] = useEntryKind()
-  const isIdiom = kind === 'idioms'
-  const unit = entryKindLabel(kind) // '単語' | '熟語'
-  const { entries: words, updateEntries: updateWords, isLoading: wordsLoading, error: wordsError } = useEntries(kind)
+  // kind はこの画面の設定として持つ（ページ間で共有しないローカル状態。Flashcardと同じ方式）。
+  const [kind, setKind] = useState('words') // 'words' | 'idioms' | 'mix'（ミックスは単語・熟語を合わせて出題）
+  const isWordsOnly = kind === 'words'
+  const unit = entryKindLabel(kind) // '単語' | '熟語' | '単語・熟語'
+  const {
+    entries: wordEntries,
+    updateEntries: updateWordEntries,
+    isLoading: wordEntriesLoading,
+    error: wordEntriesError,
+  } = useEntries('words')
+  const {
+    entries: idiomEntries,
+    updateEntries: updateIdiomEntries,
+    isLoading: idiomEntriesLoading,
+    error: idiomEntriesError,
+  } = useEntries('idioms')
+  // ミックスは単語・熟語の両コレクションを合わせて出題する。回答の書き戻し先を区別するため、
+  // 合成時だけ各エントリに __srcKind を付ける（Firestoreへは書かない一時的なタグ）。
+  const words = useMemo(() => {
+    if (kind === 'idioms') return idiomEntries
+    if (kind === 'mix') {
+      return [
+        ...wordEntries.map((w) => ({ ...w, __srcKind: 'words' })),
+        ...idiomEntries.map((w) => ({ ...w, __srcKind: 'idioms' })),
+      ]
+    }
+    return wordEntries
+  }, [kind, wordEntries, idiomEntries])
+  // ミックス以外はもう一方のコレクションの読み込みを待たせない。
+  const wordsLoading = isWordsOnly
+    ? wordEntriesLoading
+    : kind === 'idioms'
+      ? idiomEntriesLoading
+      : wordEntriesLoading || idiomEntriesLoading
+  const wordsError = isWordsOnly
+    ? wordEntriesError
+    : kind === 'idioms'
+      ? idiomEntriesError
+      : wordEntriesError || idiomEntriesError
+  // 単語・熟語で書き込み先のコレクションを振り分ける（ミックスはエントリの __srcKind で判定）。
+  const updateEntrySource = (srcKind, updater) =>
+    srcKind === 'idioms' ? updateIdiomEntries(updater) : updateWordEntries(updater)
   const {
     recordTestSession,
     recordLeaderboardAnswer,
@@ -150,17 +188,17 @@ export default function TestPage() {
   // ダミー選択肢の多様性のため、buildQuestions には絞り込み前の eligibleWords を渡す（下記）。
   const filteredWords = useMemo(() => {
     let filtered = eligibleWords
-    // CEFR・カテゴリは単語専用。熟語モードでは範囲フィルタUIを隠すので適用もしない。
-    if (!isIdiom && cefrFilter.length > 0) filtered = filtered.filter((w) => cefrFilter.includes(w.cefr))
-    if (!isIdiom && categoryFilter.length > 0) {
+    // CEFRは単語専用（熟語・ミックスでは未使用のフィールドのため適用しない）。カテゴリは共通。
+    if (isWordsOnly && cefrFilter.length > 0) filtered = filtered.filter((w) => cefrFilter.includes(w.cefr))
+    if (categoryFilter.length > 0) {
       const wanted = categoryFilter.map((t) => t.toLowerCase())
       filtered = filtered.filter((w) =>
         (w.categories ?? []).some((tag) => wanted.includes(tag.toLowerCase()))
       )
     }
     return filtered
-  }, [eligibleWords, cefrFilter, categoryFilter, isIdiom])
-  const isFilteringRange = !isIdiom && (cefrFilter.length > 0 || categoryFilter.length > 0)
+  }, [eligibleWords, cefrFilter, categoryFilter, isWordsOnly])
+  const isFilteringRange = (isWordsOnly && cefrFilter.length > 0) || categoryFilter.length > 0
   // 選択中モードで実際に出題できる語（count=null で全件）。ピッカー自身を単一の真実として使う。
   // random/recent/weak は filteredWords 全件だが、unlearned のようにフィルタするモードは減る。
   const modeWords = useMemo(
@@ -183,23 +221,25 @@ export default function TestPage() {
     hasEnoughDistinctAnswers &&
     modeWords.length >= modeMinimum &&
     (questionType !== QUESTION_TYPES.FILL_BLANK || !isFillBlankGenerating)
-  // 穴埋め（fill-blank）は活用形推定が単一見出し語前提のため熟語では出さない。
+  // 穴埋め（fill-blank）は活用形推定が単一見出し語前提のため熟語・ミックスでは出さない。
   const availableFormats = useMemo(
     () =>
-      isIdiom
-        ? QUESTION_FORMATS.filter((format) => format.type !== QUESTION_TYPES.FILL_BLANK)
-        : QUESTION_FORMATS,
-    [isIdiom],
+      isWordsOnly
+        ? QUESTION_FORMATS
+        : QUESTION_FORMATS.filter((format) => format.type !== QUESTION_TYPES.FILL_BLANK),
+    [isWordsOnly],
   )
   const currentModeLabel = QUIZ_MODES.find((m) => m.id === mode)?.label ?? ''
   const currentQuestionFormatLabel =
     QUESTION_FORMATS.find((format) => format.type === questionType)?.label ?? ''
   const eligibilityLabel =
     questionType === QUESTION_TYPES.MEANING_TO_WORD
-      ? `日本語訳と${isIdiom ? '英語' : '英単語'}のある${unit}`
+      ? `日本語訳と${isWordsOnly ? '英単語' : '英語'}のある${unit}`
       : questionType === QUESTION_TYPES.FILL_BLANK
         ? '例文内に見出し語または活用形がある単語'
         : `日本語訳のある${unit}`
+  // 日本語→英語問題で異なる見出し語が足りない場合の警告文に使う（kindごとの呼び分け）。
+  const distinctAnswerTerm = kind === 'words' ? '英単語' : kind === 'idioms' ? '英語表現' : '単語・熟語'
 
   if (wordsLoading || sessionsLoading || settingsLoading) return <LoadingState />
   if (wordsError || sessionsError || settingsError) return <DataErrorState />
@@ -246,8 +286,10 @@ export default function TestPage() {
     // 次のタスクへ回し、Enter押下後の画面更新を待たせない。
     const reviewedAt = new Date()
     const outcome = reviewOutcomeFromAnswer(answer, isCorrect)
+    // ミックスでは出題語ごとに元コレクションが違うため、書き戻し先も語ごとに振り分ける。
+    const srcKind = kind === 'mix' ? question.word.__srcKind : kind
     setTimeout(() => {
-      updateWords((prev) =>
+      updateEntrySource(srcKind, (prev) =>
         prev.map((w) => {
           if (w.id !== question.word.id) return w
           return {
@@ -281,7 +323,8 @@ export default function TestPage() {
   function markMasteredAndNext() {
     const question = questions[currentIndex]
     const masteredAt = new Date()
-    updateWords((prev) =>
+    const srcKind = kind === 'mix' ? question.word.__srcKind : kind
+    updateEntrySource(srcKind, (prev) =>
       prev.map((w) =>
         w.id === question.word.id
           ? {
@@ -339,15 +382,15 @@ export default function TestPage() {
   return (
     <Card sx={{ mb: { xs: 2, sm: 0 } }}>
       <CardContent>
-        {/* 単語/熟語の切り替え（URLクエリ ?kind=idiom）。WordListと同じ方式。 */}
+        {/* 単語/熟語/ミックスの切り替え（この画面の設定）。ミックスは単語・熟語を合わせて出題する。 */}
         <ToggleButtonGroup
           value={kind}
           exclusive
           size="small"
           onChange={(e, next) => {
             if (!next) return
-            // 穴埋めは熟語では出さないので、切替時に選択中なら選択式へ戻す
-            if (next === 'idioms' && questionType === QUESTION_TYPES.FILL_BLANK) {
+            // 穴埋めは熟語・ミックスでは出さないので、切替時に選択中なら選択式へ戻す
+            if (next !== 'words' && questionType === QUESTION_TYPES.FILL_BLANK) {
               setQuestionType(QUESTION_TYPES.MEANING_CHOICE)
             }
             setCefrFilter([])
@@ -358,6 +401,7 @@ export default function TestPage() {
         >
           <ToggleButton value="words">単語</ToggleButton>
           <ToggleButton value="idioms">熟語</ToggleButton>
+          <ToggleButton value="mix">ミックス</ToggleButton>
         </ToggleButtonGroup>
 
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
@@ -420,56 +464,54 @@ export default function TestPage() {
           </Select>
         </FormControl>
 
-        {/* CEFR・カテゴリの出題範囲フィルタは単語専用（熟語モードでは非表示） */}
-        {!isIdiom && (
-          <>
-            <Stack
-              direction={{ xs: 'column', sm: 'row' }}
-              spacing={{ xs: 0.5, sm: 0 }}
-              sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between', mb: 1 }}
-            >
-              <Typography variant="subtitle2" color="text.secondary">
-                出題範囲（CEFR・カテゴリ）
-              </Typography>
-              <Button
-                size="small"
-                startIcon={<FilterAltOffIcon />}
-                onClick={() => {
-                  setCefrFilter([])
-                  setCategoryFilter([])
-                }}
-                disabled={!isFilteringRange}
-                sx={{ alignSelf: { xs: 'flex-end', sm: 'auto' } }}
-              >
-                絞り込みをリセット
-              </Button>
-            </Stack>
-            <ToggleButtonGroup
-              value={cefrFilter}
-              onChange={(e, newValue) => setCefrFilter(newValue)}
-              aria-label="CEFRで絞り込み"
-              color="primary"
-              size="small"
-              sx={{ mb: 2, flexWrap: 'wrap' }}
-            >
-              {CEFR_LEVELS.map((level) => (
-                <ToggleButton key={level} value={level} aria-label={level}>
-                  {level}
-                </ToggleButton>
-              ))}
-            </ToggleButtonGroup>
-
-            <Autocomplete
-              multiple
-              size="small"
-              options={knownCategories}
-              value={categoryFilter}
-              onChange={(e, newValue) => setCategoryFilter(newValue)}
-              sx={{ mb: 2 }}
-              renderInput={(params) => <TextField {...params} label="出題範囲（カテゴリ）" />}
-            />
-          </>
+        {/* 出題範囲フィルタ: CEFRは単語専用、カテゴリは単語・熟語共通 */}
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={{ xs: 0.5, sm: 0 }}
+          sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between', mb: 1 }}
+        >
+          <Typography variant="subtitle2" color="text.secondary">
+            出題範囲（{isWordsOnly ? 'CEFR・カテゴリ' : 'カテゴリ'}）
+          </Typography>
+          <Button
+            size="small"
+            startIcon={<FilterAltOffIcon />}
+            onClick={() => {
+              setCefrFilter([])
+              setCategoryFilter([])
+            }}
+            disabled={!isFilteringRange}
+            sx={{ alignSelf: { xs: 'flex-end', sm: 'auto' } }}
+          >
+            絞り込みをリセット
+          </Button>
+        </Stack>
+        {isWordsOnly && (
+          <ToggleButtonGroup
+            value={cefrFilter}
+            onChange={(e, newValue) => setCefrFilter(newValue)}
+            aria-label="CEFRで絞り込み"
+            color="primary"
+            size="small"
+            sx={{ mb: 2, flexWrap: 'wrap' }}
+          >
+            {CEFR_LEVELS.map((level) => (
+              <ToggleButton key={level} value={level} aria-label={level}>
+                {level}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
         )}
+
+        <Autocomplete
+          multiple
+          size="small"
+          options={knownCategories}
+          value={categoryFilter}
+          onChange={(e, newValue) => setCategoryFilter(newValue)}
+          sx={{ mb: 2 }}
+          renderInput={(params) => <TextField {...params} label="出題範囲（カテゴリ）" />}
+        />
 
         <Typography color="text.secondary" sx={{ mb: 2 }}>
           出題対象: {modeWords.length} 語（{currentModeLabel}・{currentQuestionFormatLabel}）
@@ -487,8 +529,8 @@ export default function TestPage() {
 
         {hasEnoughEligible && !hasEnoughDistinctAnswers && (
           <Alert severity="warning" sx={{ mb: 2 }}>
-            日本語→英語問題には、異なる{isIdiom ? '英語表現' : '英単語'}が{MIN_WORDS_FOR_TEST}語以上必要です。
-            {isIdiom ? '熟語' : '英単語'}の重複を確認するか、別の出題形式を選んでください。
+            日本語→英語問題には、異なる{distinctAnswerTerm}が{MIN_WORDS_FOR_TEST}語以上必要です。
+            {unit}の重複を確認するか、別の出題形式を選んでください。
           </Alert>
         )}
 

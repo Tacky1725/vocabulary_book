@@ -115,8 +115,8 @@ export async function recordTestSession(uid, { total, correct, durationMs, kind 
     if (Number.isFinite(durationMs) && durationMs >= 0) {
       session.durationMs = Math.round(durationMs)
     }
-    // 熟語テストのみ kind を付ける。単語は従来どおり kind 無し（欠落＝単語扱い）で後方互換。
-    if (kind === 'idioms') session.kind = 'idioms'
+    // 熟語・ミックスのみ kind を付ける。単語は従来どおり kind 無し（欠落＝単語扱い）で後方互換。
+    if (kind === 'idioms' || kind === 'mix') session.kind = kind
     await setDoc(
       sessionsDoc(uid),
       { sessions: arrayUnion(session) },

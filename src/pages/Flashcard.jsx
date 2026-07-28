@@ -19,10 +19,13 @@ import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
 import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
+import Autocomplete from '@mui/material/Autocomplete'
+import TextField from '@mui/material/TextField'
 import StyleIcon from '@mui/icons-material/Style'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import ReplayIcon from '@mui/icons-material/Replay'
 import TouchAppIcon from '@mui/icons-material/TouchApp'
+import FilterAltOffIcon from '@mui/icons-material/FilterAltOff'
 import { QUIZ_MODES, pickQuestionWords } from '../lib/quiz.js'
 import {
   FLASHCARD_DIRECTIONS,
@@ -31,6 +34,7 @@ import {
   applyFlashcardResult,
 } from '../lib/flashcard.js'
 import { joinedMeaningJa } from '../lib/senses.js'
+import { CEFR_LEVELS, collectKnownCategories } from '../lib/attributes.js'
 import { normalizeReviewIntervals } from '../lib/srs.js'
 import { useEntries } from '../hooks/useEntries.js'
 import { entryKindLabel, entryKindSearch } from '../hooks/useEntryKind.js'
@@ -57,10 +61,47 @@ function cardFaces(entry, direction) {
 
 export default function Flashcard() {
   // kind はこの画面の設定として持つ（ナビの「暗記カード」は /flashcard 固定のためローカル state）。
-  const [kind, setKind] = useState('words')
-  const isIdiom = kind === 'idioms'
+  const [kind, setKind] = useState('words') // 'words' | 'idioms' | 'mix'（ミックスは単語・熟語を合わせて出題）
+  const isWordsOnly = kind === 'words'
   const unit = entryKindLabel(kind)
-  const { entries, updateEntries, isLoading: entriesLoading, error: entriesError } = useEntries(kind)
+  const {
+    entries: wordEntries,
+    updateEntries: updateWordEntries,
+    isLoading: wordEntriesLoading,
+    error: wordEntriesError,
+  } = useEntries('words')
+  const {
+    entries: idiomEntries,
+    updateEntries: updateIdiomEntries,
+    isLoading: idiomEntriesLoading,
+    error: idiomEntriesError,
+  } = useEntries('idioms')
+  // ミックスは単語・熟語の両コレクションを合わせて出題する。自己申告の書き戻し先を区別するため、
+  // 合成時だけ各エントリに __srcKind を付ける（Firestoreへは書かない一時的なタグ）。
+  const entries = useMemo(() => {
+    if (kind === 'idioms') return idiomEntries
+    if (kind === 'mix') {
+      return [
+        ...wordEntries.map((e) => ({ ...e, __srcKind: 'words' })),
+        ...idiomEntries.map((e) => ({ ...e, __srcKind: 'idioms' })),
+      ]
+    }
+    return wordEntries
+  }, [kind, wordEntries, idiomEntries])
+  // ミックス以外はもう一方のコレクションの読み込みを待たせない。
+  const entriesLoading = isWordsOnly
+    ? wordEntriesLoading
+    : kind === 'idioms'
+      ? idiomEntriesLoading
+      : wordEntriesLoading || idiomEntriesLoading
+  const entriesError = isWordsOnly
+    ? wordEntriesError
+    : kind === 'idioms'
+      ? idiomEntriesError
+      : wordEntriesError || idiomEntriesError
+  // 単語・熟語で書き込み先のコレクションを振り分ける（ミックスはエントリの __srcKind で判定）。
+  const updateEntrySource = (srcKind, updater) =>
+    srcKind === 'idioms' ? updateIdiomEntries(updater) : updateWordEntries(updater)
   const { settings, isLoading: settingsLoading, error: settingsError } = useSettings()
   const {
     recordFlashcardSession,
@@ -72,6 +113,9 @@ export default function Flashcard() {
   const [direction, setDirection] = useState('en-ja')
   const [mode, setMode] = useState('random')
   const [countOption, setCountOption] = useState('10')
+  // 出題範囲フィルタ: 出題モード（pickQuestionWords）とは直交する絞り込み。空配列は「絞り込みなし」
+  const [cefrFilter, setCefrFilter] = useState([])
+  const [categoryFilter, setCategoryFilter] = useState([])
 
   const [cards, setCards] = useState([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -87,7 +131,21 @@ export default function Flashcard() {
     [settings.reviewIntervals],
   )
   const eligible = useMemo(() => entries.filter(isEntryEligibleForFlashcard), [entries])
-  const modeWords = useMemo(() => pickQuestionWords(eligible, null, mode), [eligible, mode])
+  const knownCategories = useMemo(() => collectKnownCategories(entries), [entries])
+  // CEFRは単語専用（熟語・ミックスでは未使用のフィールドのため適用しない）。カテゴリは共通。
+  const filteredEligible = useMemo(() => {
+    let filtered = eligible
+    if (isWordsOnly && cefrFilter.length > 0) filtered = filtered.filter((e) => cefrFilter.includes(e.cefr))
+    if (categoryFilter.length > 0) {
+      const wanted = categoryFilter.map((t) => t.toLowerCase())
+      filtered = filtered.filter((e) =>
+        (e.categories ?? []).some((tag) => wanted.includes(tag.toLowerCase()))
+      )
+    }
+    return filtered
+  }, [eligible, cefrFilter, categoryFilter, isWordsOnly])
+  const isFilteringRange = (isWordsOnly && cefrFilter.length > 0) || categoryFilter.length > 0
+  const modeWords = useMemo(() => pickQuestionWords(filteredEligible, null, mode), [filteredEligible, mode])
   const currentModeLabel = QUIZ_MODES.find((m) => m.id === mode)?.label ?? ''
   const canStart = modeWords.length >= MIN_ENTRIES_FOR_FLASHCARD
 
@@ -96,7 +154,7 @@ export default function Flashcard() {
 
   function startStudy() {
     const count = countOption === 'all' ? null : Number(countOption)
-    const picked = pickQuestionWords(eligible, count, mode)
+    const picked = pickQuestionWords(filteredEligible, count, mode)
     if (picked.length < MIN_ENTRIES_FOR_FLASHCARD) return
     scrollToPageTop()
     setCards(picked)
@@ -112,7 +170,9 @@ export default function Flashcard() {
   function rate(known) {
     const card = cards[currentIndex]
     const reviewedAt = new Date()
-    updateEntries((prev) =>
+    // ミックスではカードごとに元コレクションが違うため、書き戻し先もカードごとに振り分ける。
+    const srcKind = kind === 'mix' ? card.__srcKind : kind
+    updateEntrySource(srcKind, (prev) =>
       prev.map((e) =>
         e.id === card.id ? applyFlashcardResult(e, known, reviewedAt, activeReviewIntervals) : e,
       ),
@@ -171,16 +231,22 @@ export default function Flashcard() {
   return (
     <Card sx={{ mb: { xs: 2, sm: 0 } }}>
       <CardContent>
-        {/* 単語/熟語の切り替え（この画面の設定） */}
+        {/* 単語/熟語/ミックスの切り替え（この画面の設定）。ミックスは単語・熟語を合わせて出題する。 */}
         <ToggleButtonGroup
           value={kind}
           exclusive
           size="small"
-          onChange={(e, next) => next && setKind(next)}
+          onChange={(e, next) => {
+            if (!next) return
+            setCefrFilter([])
+            setCategoryFilter([])
+            setKind(next)
+          }}
           sx={{ mb: 1.5 }}
         >
           <ToggleButton value="words">単語</ToggleButton>
           <ToggleButton value="idioms">熟語</ToggleButton>
+          <ToggleButton value="mix">ミックス</ToggleButton>
         </ToggleButtonGroup>
 
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
@@ -241,6 +307,55 @@ export default function Flashcard() {
             ))}
           </Select>
         </FormControl>
+
+        {/* 出題範囲フィルタ: CEFRは単語専用、カテゴリは単語・熟語共通 */}
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={{ xs: 0.5, sm: 0 }}
+          sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between', mb: 1 }}
+        >
+          <Typography variant="subtitle2" color="text.secondary">
+            出題範囲（{isWordsOnly ? 'CEFR・カテゴリ' : 'カテゴリ'}）
+          </Typography>
+          <Button
+            size="small"
+            startIcon={<FilterAltOffIcon />}
+            onClick={() => {
+              setCefrFilter([])
+              setCategoryFilter([])
+            }}
+            disabled={!isFilteringRange}
+            sx={{ alignSelf: { xs: 'flex-end', sm: 'auto' } }}
+          >
+            絞り込みをリセット
+          </Button>
+        </Stack>
+        {isWordsOnly && (
+          <ToggleButtonGroup
+            value={cefrFilter}
+            onChange={(e, newValue) => setCefrFilter(newValue)}
+            aria-label="CEFRで絞り込み"
+            color="primary"
+            size="small"
+            sx={{ mb: 2, flexWrap: 'wrap' }}
+          >
+            {CEFR_LEVELS.map((level) => (
+              <ToggleButton key={level} value={level} aria-label={level}>
+                {level}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+        )}
+
+        <Autocomplete
+          multiple
+          size="small"
+          options={knownCategories}
+          value={categoryFilter}
+          onChange={(e, newValue) => setCategoryFilter(newValue)}
+          sx={{ mb: 2 }}
+          renderInput={(params) => <TextField {...params} label="出題範囲（カテゴリ）" />}
+        />
 
         <Typography color="text.secondary" sx={{ mb: 2 }}>
           対象: {modeWords.length} {unit}（{currentModeLabel}・{FLASHCARD_DIRECTIONS.find((d) => d.id === direction)?.label}）
