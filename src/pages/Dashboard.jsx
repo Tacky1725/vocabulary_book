@@ -70,6 +70,17 @@ const LEVEL_OPACITY = [0, 0.25, 0.5, 0.75, 1]
 // 曜日ラベル（0=日〜6=土）。全行に3文字略記で表示する。
 const WEEKDAY_LABELS = ['Sun.', 'Mon.', 'Tue.', 'Wed.', 'Thu.', 'Fri.', 'Sat.']
 
+// 曜日ラベル列（と月ラベル行のスペーサー）。横スクロール中も左端に固定して常時表示する。
+const STICKY_LABEL_COL_SX = {
+  position: 'sticky',
+  left: 0,
+  zIndex: 1,
+  flexShrink: 0,
+  width: WEEKDAY_COL + GAP,
+  pr: `${GAP}px`,
+  bgcolor: 'background.paper',
+}
+
 // デイリーゴール。オフ始まり（enabled:false）。target はプリセットから選ぶ。
 const DEFAULT_DAILY_GOAL = { metric: 'questions', target: 20, enabled: false }
 const GOAL_TARGET_OPTIONS = [10, 20, 30, 50]
@@ -484,10 +495,9 @@ function ActivityCalendar({ calendar }) {
       <Box sx={{ overflowX: 'auto', pb: 0.5 }}>
         {/* inline-flex で内容幅に合わせ、狭い画面ではこの器がスクロールする */}
         <Box sx={{ display: 'inline-flex', flexDirection: 'column' }}>
-          {/* 月ラベル行（曜日ラベル列の分だけ左に寄せる）。
-              2列目に月の始まりが来ると1列目（直前月の端）とラベルが隣接して見にくいため、
-              その場合は1列目のラベルを間引く。 */}
-          <Box sx={{ display: 'flex', pl: `${WEEKDAY_COL + GAP}px`, mb: 0.5 }}>
+    
+          <Box sx={{ display: 'flex', mb: 0.5 }}>
+            <Box sx={STICKY_LABEL_COL_SX} />
             {(() => {
               const hasMonthAtCol1 = calendar.months.some((m) => m.colIndex === 1)
               return calendar.weeks.map((_, w) => {
@@ -496,7 +506,13 @@ function ActivityCalendar({ calendar }) {
                 return (
                   <Box
                     key={w}
-                    sx={{ width: colWidth, fontSize: 10, color: 'text.secondary', lineHeight: 1 }}
+                    sx={{
+                      width: colWidth,
+                      flexShrink: 0,
+                      fontSize: 10,
+                      color: 'text.secondary',
+                      lineHeight: 1,
+                    }}
                   >
                     {month?.label ?? ''}
                   </Box>
@@ -505,9 +521,9 @@ function ActivityCalendar({ calendar }) {
             })()}
           </Box>
 
-          {/* 曜日ラベル列 + 週ごとの縦7マス */}
+          {/* 曜日ラベル列 + 週ごとの縦7マス。曜日ラベル列は sticky で常時表示する。 */}
           <Box sx={{ display: 'flex' }}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', width: WEEKDAY_COL, mr: `${GAP}px` }}>
+            <Box sx={{ ...STICKY_LABEL_COL_SX, display: 'flex', flexDirection: 'column' }}>
               {WEEKDAY_LABELS.map((label, i) => (
                 <Box
                   key={i}
@@ -524,7 +540,10 @@ function ActivityCalendar({ calendar }) {
               ))}
             </Box>
             {calendar.weeks.map((col, w) => (
-              <Box key={w} sx={{ display: 'flex', flexDirection: 'column', mr: `${GAP}px` }}>
+              <Box
+                key={w}
+                sx={{ display: 'flex', flexDirection: 'column', flexShrink: 0, mr: `${GAP}px` }}
+              >
                 {col.map((day) => (
                   <Tooltip
                     key={day.dateKey}
