@@ -242,6 +242,10 @@ function RankingTable({ rows, myUid, onSendCheer }) {
   )
 }
 
+// 届いた応援は新しい順（useCheers の並び）に5件まで見せ、残りはスクロールで辿る。
+const MAX_VISIBLE_CHEERS = 5
+const CHEER_ROW_HEIGHT = 52
+
 function ReceivedCheers({ cheers }) {
   // 参照を安定させないと useSenderDisplayNames が毎回取得し直してしまう
   const senderUids = useMemo(() => [...new Set(cheers.map((c) => c.senderUid))], [cheers])
@@ -256,15 +260,20 @@ function ReceivedCheers({ cheers }) {
         {cheers.length === 0 ? (
           <Typography color="text.secondary">まだ応援はありません。</Typography>
         ) : (
-          <List dense>
+          <List
+            dense
+            disablePadding
+            sx={{ maxHeight: MAX_VISIBLE_CHEERS * CHEER_ROW_HEIGHT, overflowY: 'auto' }}
+          >
             {cheers.map((cheer) => {
               const senderName = namesByUid[cheer.senderUid] ?? '読み込み中…'
               const receivedAt = formatCheerTimestamp(cheer.createdAt)
               return (
-                <ListItem key={cheer.id} disableGutters>
+                <ListItem key={cheer.id} disableGutters sx={{ height: CHEER_ROW_HEIGHT, py: 0 }}>
                   <ListItemText
                     primary={CHEER_REACTIONS.find((r) => r.id === cheer.type)?.label ?? cheer.type}
                     secondary={receivedAt ? `${senderName} ・ ${receivedAt}` : senderName}
+                    slotProps={{ primary: { noWrap: true }, secondary: { noWrap: true } }}
                   />
                 </ListItem>
               )
