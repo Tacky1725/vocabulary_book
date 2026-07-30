@@ -37,6 +37,9 @@ export default function AddWord() {
   const isIdiom = kind === 'idioms'
   const unit = entryKindLabel(kind) // '単語' | '熟語'
   const { entries: words, updateEntries: updateWords, isLoading, error } = useEntries(kind)
+  // カテゴリタグの語彙は単語・熟語で共通なので、入力候補はもう一方のコレクションからも集める。
+  // 候補を出すためだけの購読なので isLoading / error には含めない（追加画面の表示を待たせない）。
+  const { entries: otherKindEntries } = useEntries(isIdiom ? 'words' : 'idioms')
   const [tab, setTab] = useState('search')
 
   if (isLoading) return <LoadingState />
@@ -53,7 +56,13 @@ export default function AddWord() {
           <Tab label="CSV一括追加" value="csv" />
         </Tabs>
         {tab === 'search' ? (
-          <SearchTab words={words} updateWords={updateWords} isIdiom={isIdiom} unit={unit} />
+          <SearchTab
+            words={words}
+            updateWords={updateWords}
+            otherKindEntries={otherKindEntries}
+            isIdiom={isIdiom}
+            unit={unit}
+          />
         ) : (
           <CsvTab words={words} updateWords={updateWords} isIdiom={isIdiom} unit={unit} />
         )}
@@ -80,7 +89,7 @@ const gridSx = {
   gap: 2,
 }
 
-function SearchTab({ words, updateWords, isIdiom, unit }) {
+function SearchTab({ words, updateWords, otherKindEntries, isIdiom, unit }) {
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
   // form: null = プレビュー非表示 / { word, phonetic, cefr, categories, senses: [語義行] }
@@ -89,7 +98,11 @@ function SearchTab({ words, updateWords, isIdiom, unit }) {
   const [successMessage, setSuccessMessage] = useState('')
   // 重複が見つかったとき: { id, word } を保持して確認UIを出す
   const [duplicate, setDuplicate] = useState(null)
-  const knownCategories = useMemo(() => collectKnownCategories(words), [words])
+  // 入力候補は単語・熟語をまたいだ全タグ（表記ゆれのタグが増えるのを防ぐ）。
+  const knownCategories = useMemo(
+    () => collectKnownCategories([...words, ...(otherKindEntries ?? [])]),
+    [words, otherKindEntries],
+  )
 
   async function handleSearch(e) {
     e.preventDefault()
@@ -321,7 +334,7 @@ function SearchTab({ words, updateWords, isIdiom, unit }) {
               value={form.word}
               onChange={(e) => handleFieldChange('word', e.target.value)}
             />
-            {/* 発音記号・CEFR・カテゴリは単語専用（熟語モードでは非表示） */}
+            {/* 発音記号・CEFR は単語専用（熟語モードでは非表示）。カテゴリは単語・熟語で共通 */}
             {!isIdiom && (
               <TextField
                 label="発音記号"
@@ -347,19 +360,17 @@ function SearchTab({ words, updateWords, isIdiom, unit }) {
                 </Select>
               </FormControl>
             )}
-            {!isIdiom && (
-              <Autocomplete
-                multiple
-                freeSolo
-                size="small"
-                options={knownCategories}
-                value={form.categories}
-                onChange={(e, newValue) => handleFieldChange('categories', normalizeCategories(newValue))}
-                renderInput={(params) => (
-                  <TextField {...params} label="カテゴリ" placeholder="タグを追加" />
-                )}
-              />
-            )}
+            <Autocomplete
+              multiple
+              freeSolo
+              size="small"
+              options={knownCategories}
+              value={form.categories}
+              onChange={(e, newValue) => handleFieldChange('categories', normalizeCategories(newValue))}
+              renderInput={(params) => (
+                <TextField {...params} label="カテゴリ" placeholder="タグを追加" />
+              )}
+            />
           </Box>
 
           <Box sx={{ mb: 2 }}>
@@ -570,12 +581,12 @@ function CsvTab({ words, updateWords, isIdiom, unit }) {
     const skipped = entries.length - toImport.length
 
     // CSV に cefr が明示されている行はそれを尊重し、空欄の行だけ自動判定で補う（単語のみ）。
-    // 熟語は CEFR・カテゴリを持たないので判定せず、見出し語と語義だけ取り込む。
+    // 熟語は CEFR・発音記号を持たないので取り込まない（カテゴリは単語・熟語で共通なので取り込む）。
     const guessedCefr = isIdiom ? [] : await lookupCefrMany(toImport.map((entry) => entry.word))
     const newEntries = toImport.map((entry, i) =>
       createWordEntry(
         isIdiom
-          ? { word: entry.word, senses: entry.senses }
+          ? { word: entry.word, categories: entry.categories, senses: entry.senses }
           : {
               word: entry.word,
               phonetic: entry.phonetic,
@@ -624,10 +635,10 @@ bank,the land alongside a river,土手,/bæŋk/,noun,We walked along the bank.`}
         </Box>
         <Typography color="text.secondary">
           1行=1語義。同じ word の行は1つの{unit}にまとめて登録されます（上の例は「bank」1語に語義2件）。
+          任意で categories（タグを「;」区切りで複数指定）の列も追加できます。
           {!isIdiom && (
             <>
-              任意で cefr（A1〜C2）・categories（タグを「;」区切りで複数指定）の列も追加できます。
-              cefr が空欄の行は登録時に自動判定を試みます（収録外の単語は未設定のままになります）。
+              cefr（A1〜C2）の列も指定でき、空欄の行は登録時に自動判定を試みます（収録外の単語は未設定のままになります）。
             </>
           )}
         </Typography>

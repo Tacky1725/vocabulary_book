@@ -211,7 +211,7 @@ function WordEditForm({
           value={draft.word}
           onChange={(e) => setDraft({ ...draft, word: e.target.value })}
         />
-        {/* 発音記号・CEFR・カテゴリは単語専用（熟語モードでは非表示） */}
+        {/* 発音記号・CEFR は単語専用（熟語モードでは非表示）。カテゴリは単語・熟語で共通 */}
         {!isIdiom && (
           <TextField
             label="発音記号"
@@ -238,20 +238,18 @@ function WordEditForm({
             </Select>
           </FormControl>
         )}
-        {!isIdiom && (
-          <Autocomplete
-            multiple
-            freeSolo
-            size="small"
-            options={knownCategories}
-            value={draft.categories}
-            onChange={(e, newValue) => setDraft({ ...draft, categories: normalizeCategories(newValue) })}
-            renderInput={(params) => (
-              <TextField {...params} label="カテゴリ" placeholder="タグを追加" />
-            )}
-            sx={{ gridColumn: '1 / -1' }}
-          />
-        )}
+        <Autocomplete
+          multiple
+          freeSolo
+          size="small"
+          options={knownCategories}
+          value={draft.categories}
+          onChange={(e, newValue) => setDraft({ ...draft, categories: normalizeCategories(newValue) })}
+          renderInput={(params) => (
+            <TextField {...params} label="カテゴリ" placeholder="タグを追加" />
+          )}
+          sx={{ gridColumn: '1 / -1' }}
+        />
       </Box>
       <Stack spacing={1.5} sx={{ mb: 1.5 }}>
         <Typography variant="body2" color="text.secondary">
@@ -356,7 +354,7 @@ function WordCard({ word, isIdiom = false, onEdit, onDelete }) {
               <Typography fontWeight={600} sx={{ wordBreak: 'break-word' }}>
                 {word.word}
               </Typography>
-              {/* 発音記号・CEFR・カテゴリは単語専用（熟語モードでは非表示） */}
+              {/* 発音記号・CEFR は単語専用（熟語モードでは非表示）。カテゴリは単語・熟語で共通 */}
               {!isIdiom && word.cefr && <Chip label={word.cefr} size="small" color="primary" variant="outlined" />}
             </Stack>
             {/* phonetic は辞書API由来で既にスラッシュ付き（例: /rɪˈzɪliənt/） */}
@@ -365,7 +363,7 @@ function WordCard({ word, isIdiom = false, onEdit, onDelete }) {
                 {word.phonetic}
               </Typography>
             )}
-            {!isIdiom && word.categories?.length > 0 && (
+            {word.categories?.length > 0 && (
               <Stack direction="row" gap={0.5} sx={{ flexWrap: 'wrap', mt: 0.5 }}>
                 {word.categories.map((tag) => (
                   <Chip key={tag} label={tag} size="small" />
@@ -409,6 +407,9 @@ export default function WordList() {
   const unit = entryKindLabel(kind) // '単語' | '熟語'
   // データ層は kind でコレクションを切り替える。以降は従来どおり words/updateWords 名で扱う。
   const { entries: words, updateEntries: updateWords, isLoading, error } = useEntries(kind)
+  // カテゴリタグの語彙は単語・熟語で共通なので、編集フォームの候補はもう一方のコレクションからも集める。
+  // 候補を出すためだけの購読なので isLoading / error には含めない（一覧の表示を待たせない）。
+  const { entries: otherKindEntries } = useEntries(isIdiom ? 'words' : 'idioms')
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const [query, setQuery] = useState('')
@@ -424,7 +425,13 @@ export default function WordList() {
   const [categoryFilter, setCategoryFilter] = useState([])
   const [bulkCefrRunning, setBulkCefrRunning] = useState(false)
   const [bulkCefrResult, setBulkCefrResult] = useState(null)
+  // 絞り込み候補は表示中のコレクションのタグだけ（選んでも0件になる候補を並べない）。
   const knownCategories = useMemo(() => collectKnownCategories(words), [words])
+  // 編集フォームの入力候補は単語・熟語をまたいだ全タグ（表記ゆれのタグが増えるのを防ぐ）。
+  const allKnownCategories = useMemo(
+    () => collectKnownCategories([...words, ...otherKindEntries]),
+    [words, otherKindEntries],
+  )
 
   const visibleWords = useMemo(() => {
     const q = deferredQuery.trim().toLowerCase()
@@ -439,11 +446,11 @@ export default function WordList() {
       })
       : words.slice()
 
-    // CEFR・カテゴリは単語専用。熟語モードでは絞り込みUIを隠すので適用もしない。
+    // CEFR は単語専用。熟語モードでは絞り込みUIを隠すので適用もしない。カテゴリは単語・熟語で共通。
     if (!isIdiom && cefrFilter.length > 0) {
       filtered = filtered.filter((w) => cefrFilter.includes(w.cefr || CEFR_UNSET))
     }
-    if (!isIdiom && categoryFilter.length > 0) {
+    if (categoryFilter.length > 0) {
       const wanted = categoryFilter.map((t) => t.toLowerCase())
       filtered = filtered.filter((w) =>
         (w.categories ?? []).some((tag) => wanted.includes(tag.toLowerCase())),
@@ -576,8 +583,8 @@ export default function WordList() {
     setBulkCefrResult({ judged: cefrById.size, total: targets.length })
   }
 
-  // 熟語モードでは CEFR・カテゴリ絞り込みを適用しないので、判定からも除外する
-  const isFilteringRange = !isIdiom && (cefrFilter.length > 0 || categoryFilter.length > 0)
+  // 熟語モードでは CEFR 絞り込みを適用しないので、判定からも除外する（カテゴリは共通）
+  const isFilteringRange = (!isIdiom && cefrFilter.length > 0) || categoryFilter.length > 0
   const isFiltering = query.trim() !== '' || isFilteringRange
 
   // 編集フォームに渡す共通 props（テーブル・カードで同じフォームを使う）
@@ -590,7 +597,7 @@ export default function WordList() {
     setDraftSense,
     addDraftSense,
     removeDraftSense,
-    knownCategories,
+    knownCategories: allKnownCategories,
     isIdiom,
   }
 
@@ -731,7 +738,7 @@ export default function WordList() {
                   </MenuItem>
                 ))}
               </Select>
-              {/* CEFR・カテゴリ絞り込みは単語専用（熟語モードでは非表示） */}
+              {/* CEFR 絞り込みは単語専用（熟語モードでは非表示）。カテゴリ絞り込みは単語・熟語で共通 */}
               {!isIdiom && (
                 <Select
                   multiple
@@ -773,36 +780,32 @@ export default function WordList() {
                   ))}
                 </Select>
               )}
-              {!isIdiom && (
-                <Autocomplete
-                  multiple
-                  size="small"
-                  options={knownCategories}
-                  value={categoryFilter}
-                  onChange={(e, newValue) => {
-                    setCategoryFilter(newValue)
-                    setPage(1)
-                  }}
-                  sx={{ minWidth: 200, flex: { sm: '1 1 220px' }, maxWidth: { sm: 320 } }}
-                  renderInput={(params) => (
-                    <TextField {...params} label="カテゴリで絞り込み" />
-                  )}
-                />
-              )}
-              {!isIdiom && (
-                <Button
-                  size="small"
-                  startIcon={<FilterAltOffIcon />}
-                  onClick={() => {
-                    setCefrFilter([])
-                    setCategoryFilter([])
-                    setPage(1)
-                  }}
-                  disabled={!isFilteringRange}
-                >
-                  絞り込みをリセット
-                </Button>
-              )}
+              <Autocomplete
+                multiple
+                size="small"
+                options={knownCategories}
+                value={categoryFilter}
+                onChange={(e, newValue) => {
+                  setCategoryFilter(newValue)
+                  setPage(1)
+                }}
+                sx={{ minWidth: 200, flex: { sm: '1 1 220px' }, maxWidth: { sm: 320 } }}
+                renderInput={(params) => (
+                  <TextField {...params} label="カテゴリで絞り込み" />
+                )}
+              />
+              <Button
+                size="small"
+                startIcon={<FilterAltOffIcon />}
+                onClick={() => {
+                  setCefrFilter([])
+                  setCategoryFilter([])
+                  setPage(1)
+                }}
+                disabled={!isFilteringRange}
+              >
+                絞り込みをリセット
+              </Button>
               <Typography
                 color="text.secondary"
                 sx={{ ml: { sm: 'auto' }, whiteSpace: 'nowrap' }}
