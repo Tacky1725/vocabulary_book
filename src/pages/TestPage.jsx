@@ -59,6 +59,7 @@ import { useSettings } from '../hooks/useSettings.js'
 import { useFillBlankQuestionCache } from '../hooks/useFillBlankQuestionCache.js'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { DataErrorState, LoadingState } from '../components/LoadingState.jsx'
+import CategoryQuickAdd from '../components/CategoryQuickAdd.jsx'
 import { formatDuration } from '../lib/stats.js'
 import { useQuestionTimer } from '../hooks/useQuestionTimer.js'
 
@@ -179,7 +180,13 @@ export default function TestPage() {
           }),
     [words, questionType, fillBlankQuestionsByWordId],
   )
+  // 出題範囲の絞り込み候補は出題対象のコレクションのタグだけ（選んでも0件になる候補を並べない）。
   const knownCategories = useMemo(() => collectKnownCategories(words), [words])
+  // 解説画面のタグ付け候補は単語・熟語をまたいだ全タグ（表記ゆれのタグが増えるのを防ぐ）。
+  const allKnownCategories = useMemo(
+    () => collectKnownCategories([...wordEntries, ...idiomEntries]),
+    [wordEntries, idiomEntries],
+  )
   const reviewIntervals = useMemo(
     () => normalizeReviewIntervals(settings.reviewIntervals),
     [settings.reviewIntervals],
@@ -240,6 +247,13 @@ export default function TestPage() {
         : `日本語訳のある${unit}`
   // 日本語→英語問題で異なる見出し語が足りない場合の警告文に使う（kindごとの呼び分け）。
   const distinctAnswerTerm = kind === 'words' ? '英単語' : kind === 'idioms' ? '英語表現' : '単語・熟語'
+  // 解説画面のカテゴリ登録用。出題時のスナップショット（question.word）ではなく購読中の一覧から引く
+  // ことで、タグを付け外しした結果が即座に反映される。
+  const currentQuestionWordId = questions[currentIndex]?.word?.id ?? null
+  const currentCategories = useMemo(
+    () => words.find((w) => w.id === currentQuestionWordId)?.categories ?? [],
+    [words, currentQuestionWordId],
+  )
 
   if (wordsLoading || sessionsLoading || settingsLoading) return <LoadingState />
   if (wordsError || sessionsError || settingsError) return <DataErrorState />
@@ -337,6 +351,17 @@ export default function TestPage() {
     goNext()
   }
 
+  // 解説画面でのカテゴリ付け外し。書き戻しは prev 側のエントリをスプレッドする
+  // （question.word には ミックス用の一時タグ __srcKind が付いており、Firestore へ書いてはいけない）。
+  function changeCurrentCategories(nextCategories) {
+    const question = questions[currentIndex]
+    if (!question) return
+    const srcKind = kind === 'mix' ? question.word.__srcKind : kind
+    updateEntrySource(srcKind, (prev) =>
+      prev.map((w) => (w.id === question.word.id ? { ...w, categories: nextCategories } : w)),
+    )
+  }
+
   function restart() {
     scrollToPageTop()
     setPhase('setup')
@@ -359,6 +384,9 @@ export default function TestPage() {
         score={score}
         selectedAnswer={selectedAnswer}
         elapsedMs={questionTimer.elapsedMs}
+        categories={currentCategories}
+        knownCategories={allKnownCategories}
+        onChangeCategories={changeCurrentCategories}
         onAnswer={handleAnswer}
         onNext={goNext}
         onMastered={markMasteredAndNext}
@@ -722,6 +750,9 @@ function QuizScreen({
   score,
   selectedAnswer,
   elapsedMs,
+  categories,
+  knownCategories,
+  onChangeCategories,
   onAnswer,
   onNext,
   onMastered,
@@ -1092,6 +1123,16 @@ function QuizScreen({
                 ))}
               </Stack>
             )}
+
+            {/* 解説を読んだ流れでそのままタグ付けできるようにする（変更は即保存される）。
+                key で語ごとに state を捨て、入力途中のタグが次の問題へ持ち越されないようにする。 */}
+            <CategoryQuickAdd
+              key={word.id}
+              categories={categories}
+              knownCategories={knownCategories}
+              onChange={onChangeCategories}
+              sx={{ mb: 2 }}
+            />
 
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}>
               <Button

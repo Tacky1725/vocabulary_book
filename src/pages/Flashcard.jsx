@@ -41,6 +41,7 @@ import { entryKindLabel, entryKindSearch } from '../hooks/useEntryKind.js'
 import { useSettings } from '../hooks/useSettings.js'
 import { useFlashcardSessions } from '../hooks/useFlashcardSessions.js'
 import { DataErrorState, LoadingState } from '../components/LoadingState.jsx'
+import CategoryQuickAdd from '../components/CategoryQuickAdd.jsx'
 
 const COUNT_OPTIONS = [
   { value: '10', label: '10枚' },
@@ -131,7 +132,13 @@ export default function Flashcard() {
     [settings.reviewIntervals],
   )
   const eligible = useMemo(() => entries.filter(isEntryEligibleForFlashcard), [entries])
+  // 出題範囲の絞り込み候補は出題対象のコレクションのタグだけ（選んでも0件になる候補を並べない）。
   const knownCategories = useMemo(() => collectKnownCategories(entries), [entries])
+  // 正解画面のタグ付け候補は単語・熟語をまたいだ全タグ（表記ゆれのタグが増えるのを防ぐ）。
+  const allKnownCategories = useMemo(
+    () => collectKnownCategories([...wordEntries, ...idiomEntries]),
+    [wordEntries, idiomEntries],
+  )
   // CEFRは単語専用（熟語・ミックスでは未使用のフィールドのため適用しない）。カテゴリは共通。
   const filteredEligible = useMemo(() => {
     let filtered = eligible
@@ -148,6 +155,13 @@ export default function Flashcard() {
   const modeWords = useMemo(() => pickQuestionWords(filteredEligible, null, mode), [filteredEligible, mode])
   const currentModeLabel = QUIZ_MODES.find((m) => m.id === mode)?.label ?? ''
   const canStart = modeWords.length >= MIN_ENTRIES_FOR_FLASHCARD
+  // 正解画面のカテゴリ登録用。出題時のスナップショット（cards[i]）ではなく購読中の一覧から引くことで、
+  // タグを付け外しした結果が即座に反映される。
+  const currentCardId = cards[currentIndex]?.id ?? null
+  const currentCategories = useMemo(
+    () => entries.find((e) => e.id === currentCardId)?.categories ?? [],
+    [entries, currentCardId],
+  )
 
   if (entriesLoading || settingsLoading || sessionsLoading) return <LoadingState />
   if (entriesError || settingsError || sessionsError) return <DataErrorState />
@@ -198,6 +212,17 @@ export default function Flashcard() {
     }
   }
 
+  // 正解画面でのカテゴリ付け外し。書き戻しは prev 側のエントリをスプレッドする
+  // （card には ミックス用の一時タグ __srcKind が付いており、Firestore へ書いてはいけない）。
+  function changeCurrentCategories(nextCategories) {
+    const card = cards[currentIndex]
+    if (!card) return
+    const srcKind = kind === 'mix' ? card.__srcKind : kind
+    updateEntrySource(srcKind, (prev) =>
+      prev.map((e) => (e.id === card.id ? { ...e, categories: nextCategories } : e)),
+    )
+  }
+
   function restart() {
     scrollToPageTop()
     setPhase('setup')
@@ -218,6 +243,9 @@ export default function Flashcard() {
         total={cards.length}
         knownCount={knownCount}
         revealed={revealed}
+        categories={currentCategories}
+        knownCategories={allKnownCategories}
+        onChangeCategories={changeCurrentCategories}
         onReveal={() => setRevealed(true)}
         onRate={rate}
       />
@@ -391,7 +419,19 @@ export default function Flashcard() {
   )
 }
 
-function StudyScreen({ card, direction, currentIndex, total, knownCount, revealed, onReveal, onRate }) {
+function StudyScreen({
+  card,
+  direction,
+  currentIndex,
+  total,
+  knownCount,
+  revealed,
+  categories,
+  knownCategories,
+  onChangeCategories,
+  onReveal,
+  onRate,
+}) {
   const { front, back } = cardFaces(card, direction)
 
   return (
@@ -437,6 +477,19 @@ function StudyScreen({ card, direction, currentIndex, total, knownCount, reveale
             </CardActionArea>
           )}
         </Card>
+
+        {/* 答えを見た流れでそのままタグ付けできるようにする（変更は即保存される）。
+            カードの外に置くのは、開閉でカード自体の高さが跳ねないようにするため。
+            key でカードごとに state を捨て、入力途中のタグが次のカードへ持ち越されないようにする。 */}
+        {revealed && (
+          <CategoryQuickAdd
+            key={card.id}
+            categories={categories}
+            knownCategories={knownCategories}
+            onChange={onChangeCategories}
+            sx={{ mb: 2 }}
+          />
+        )}
 
         {revealed ? (
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
