@@ -829,6 +829,7 @@ export default function WordList() {
                     variant="contained"
                     size="small"
                     startIcon={<AddIcon />}
+                    sx={{ textTransform: 'none' }}
                   >
                     「{query.trim()}」を新規追加
                   </Button>
