@@ -819,7 +819,21 @@ export default function WordList() {
             </Stack>
 
             {visibleWords.length === 0 ? (
-              <Typography color="text.secondary">検索条件に一致する単語がありません。</Typography>
+              <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
+                <Typography color="text.secondary">検索条件に一致する{unit}がありません。</Typography>
+                {/* 未登録の語を探していたケースを想定し、検索語をそのまま追加画面へ引き継ぐ */}
+                {query.trim() !== '' && (
+                  <Button
+                    component={RouterLink}
+                    to={`/add${entryKindSearch(kind, { q: query.trim() })}`}
+                    variant="contained"
+                    size="small"
+                    startIcon={<AddIcon />}
+                  >
+                    「{query.trim()}」を新規追加
+                  </Button>
+                )}
+              </Stack>
             ) : isMobile ? (
               // スマホ: カード型リスト（6列テーブルの横スクロールを避ける）
               <Stack spacing={1.25}>

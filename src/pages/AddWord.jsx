@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link as RouterLink, useSearchParams } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
@@ -17,12 +18,15 @@ import MenuItem from '@mui/material/MenuItem'
 import InputLabel from '@mui/material/InputLabel'
 import FormControl from '@mui/material/FormControl'
 import Autocomplete from '@mui/material/Autocomplete'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import SearchIcon from '@mui/icons-material/Search'
+import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
 import AddIcon from '@mui/icons-material/Add'
 import TranslateIcon from '@mui/icons-material/Translate'
 import UploadFileIcon from '@mui/icons-material/UploadFile'
 import { useEntries } from '../hooks/useEntries.js'
-import { useEntryKind, entryKindLabel } from '../hooks/useEntryKind.js'
+import { useEntryKind, entryKindSearch, entryKindLabel } from '../hooks/useEntryKind.js'
 import { createWordEntry } from '../lib/storage.js'
 import { createSense } from '../lib/senses.js'
 import { fetchDictionaryEntry, fetchJapaneseTranslation } from '../lib/api.js'
@@ -32,8 +36,8 @@ import { lookupCefr, lookupCefrMany } from '../lib/cefr.js'
 import { DataErrorState, LoadingState } from '../components/LoadingState.jsx'
 
 export default function AddWord() {
-  // kind は一覧の「追加」ボタンが付ける URL クエリ ?kind=idiom から読む（追加画面自体に切替UIは持たない）。
-  const [kind] = useEntryKind()
+  // kind は URL クエリ ?kind=idiom（一覧の「追加」ボタン由来、または下の切替トグル）から読む。
+  const [kind, setKind] = useEntryKind()
   const isIdiom = kind === 'idioms'
   const unit = entryKindLabel(kind) // '単語' | '熟語'
   const { entries: words, updateEntries: updateWords, isLoading, error } = useEntries(kind)
@@ -41,6 +45,9 @@ export default function AddWord() {
   // 候補を出すためだけの購読なので isLoading / error には含めない（追加画面の表示を待たせない）。
   const { entries: otherKindEntries } = useEntries(isIdiom ? 'words' : 'idioms')
   const [tab, setTab] = useState('search')
+  // 一覧の検索でヒットしなかったときの「新規追加」から渡ってくる検索語（?q=...）を初期値にする。
+  const [searchParams] = useSearchParams()
+  const initialQuery = searchParams.get('q') ?? ''
 
   if (isLoading) return <LoadingState />
   if (error) return <DataErrorState />
@@ -48,20 +55,52 @@ export default function AddWord() {
   return (
     <Card>
       <CardContent>
-        <Typography variant="h5" component="h2" gutterBottom>
-          {unit}追加
-        </Typography>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          gap={1}
+          sx={{ justifyContent: 'space-between', alignItems: { xs: 'stretch', sm: 'center' }, mb: 1 }}
+        >
+          <Typography variant="h5" component="h2">
+            {unit}追加
+          </Typography>
+          <Stack direction="row" gap={1} sx={{ flexWrap: 'wrap' }}>
+            {/* 単語/熟語の切り替え（URLクエリ ?kind=idiom）。検索語 q は setKind が引き継ぐ。 */}
+            <ToggleButtonGroup
+              value={kind}
+              exclusive
+              size="small"
+              onChange={(e, next) => {
+                if (next) setKind(next)
+              }}
+            >
+              <ToggleButton value="words">単語</ToggleButton>
+              <ToggleButton value="idioms">熟語</ToggleButton>
+            </ToggleButtonGroup>
+            <Button
+              component={RouterLink}
+              to={`/words${entryKindSearch(kind)}`}
+              variant="outlined"
+              size="small"
+              startIcon={<FormatListBulletedIcon />}
+            >
+              {unit}一覧・検索へ
+            </Button>
+          </Stack>
+        </Stack>
         <Tabs value={tab} onChange={(e, v) => setTab(v)} sx={{ mb: 2 }}>
           <Tab label={isIdiom ? '熟語を入力して追加' : '単語検索で追加'} value="search" />
           <Tab label="CSV一括追加" value="csv" />
         </Tabs>
         {tab === 'search' ? (
+          // kind を key にして単語⇔熟語の切替時にプレビュー（発音記号・CEFR等）を持ち越さない
           <SearchTab
+            key={kind}
             words={words}
             updateWords={updateWords}
             otherKindEntries={otherKindEntries}
             isIdiom={isIdiom}
             unit={unit}
+            initialQuery={initialQuery}
           />
         ) : (
           <CsvTab words={words} updateWords={updateWords} isIdiom={isIdiom} unit={unit} />
@@ -89,8 +128,8 @@ const gridSx = {
   gap: 2,
 }
 
-function SearchTab({ words, updateWords, otherKindEntries, isIdiom, unit }) {
-  const [query, setQuery] = useState('')
+function SearchTab({ words, updateWords, otherKindEntries, isIdiom, unit, initialQuery = '' }) {
+  const [query, setQuery] = useState(initialQuery)
   const [loading, setLoading] = useState(false)
   // form: null = プレビュー非表示 / { word, phonetic, cefr, categories, senses: [語義行] }
   const [form, setForm] = useState(null)

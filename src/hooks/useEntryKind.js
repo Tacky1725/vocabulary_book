@@ -16,8 +16,16 @@ export function useEntryKind() {
 }
 
 // 遷移リンクへ kind を引き継ぐためのクエリ文字列（例: `/add${entryKindSearch(kind)}`）。
-export function entryKindSearch(kind) {
-  return kind === 'idioms' ? '?kind=idiom' : ''
+// extra を渡すと追加のクエリも載せられる（例: 一覧の検索語を追加画面へ渡す `{ q: '...' }`）。
+// 値が空文字・null の項目は落とすので、呼び出し側で分岐しなくてよい。
+export function entryKindSearch(kind, extra) {
+  const params = new URLSearchParams()
+  if (kind === 'idioms') params.set('kind', 'idiom')
+  for (const [key, value] of Object.entries(extra ?? {})) {
+    if (value) params.set(key, value)
+  }
+  const search = params.toString()
+  return search ? `?${search}` : ''
 }
 
 // 表示用の単位ラベル。'mix'（単語・熟語ミックス出題）はテスト・暗記カードのみで使う。
