@@ -63,7 +63,7 @@ export default function AddWord() {
           <Typography variant="h5" component="h2">
             {unit}追加
           </Typography>
-          <Stack direction="row" gap={1} sx={{ flexWrap: 'wrap' }}>
+          <Stack direction="row" gap={2} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
             {/* 単語/熟語の切り替え（URLクエリ ?kind=idiom）。検索語 q は setKind が引き継ぐ。 */}
             <ToggleButtonGroup
               value={kind}
